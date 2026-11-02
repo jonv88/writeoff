@@ -1,0 +1,30 @@
+/* Auth gate — same tokens/typography as locked template; not a redesign. */
+.auth-shell {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 28px 18px;
+  background: var(--paper);
+}
+.auth-panel {
+  width: min(460px, 100%);
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  padding: 34px 28px;
+}
+.auth-panel h1 {
+  font: 700 28px Manrope, sans-serif;
+  letter-spacing: -1px;
+  margin: 10px 0 10px;
+}
+.auth-panel form {
+  display: grid;
+  gap: 15px;
+}
+.auth-panel code {
+  font-size: 11px;
+  background: #f1f4ea;
+  padding: 2px 5px;
+  border-radius: 4px;
+}

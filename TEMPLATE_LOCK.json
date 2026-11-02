@@ -1,0 +1,41 @@
+{
+  "product": "Writeoff",
+  "template_version": "approved-prototype-2026-11-02",
+  "source_commit": "e4a3d7fbcb748579e334471f2272f3f30b65e2c7",
+  "reference_url": "https://writeoff-ledger-jv.jocosepuppy4.chatgpt.site",
+  "authoritative_source": "reference-template/",
+  "sha256": {
+    "app.js": "8f2bba00dfd630b7ca1e88b3c32f0bfd20b0bfe93fe35e2edb82d237d9febc00",
+    "core.js": "9df9ae9f9ff9a2ab8d7543de2b83d91165fcd6e0e16729428ed93ad6c5a014e9",
+    "index.html": "7bd59c7c668dca200e3a329d59822d9ac9134d2e0a839cff5e23c5048de86955"
+  },
+  "viewports": [
+    {
+      "width": 375,
+      "height": 812
+    },
+    {
+      "width": 390,
+      "height": 844
+    },
+    {
+      "width": 768,
+      "height": 1024
+    },
+    {
+      "width": 1440,
+      "height": 900
+    }
+  ],
+  "immutable": true,
+  "preserve": [
+    "wordmark",
+    "palette",
+    "fonts",
+    "component styles",
+    "spacing",
+    "navigation",
+    "responsive layout"
+  ],
+  "allowed_change": "Functional implementation and truthful state copy; minimal necessary native/accessibility adaptations."
+}
