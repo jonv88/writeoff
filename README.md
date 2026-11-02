@@ -16,15 +16,20 @@ Without cloud keys: **Local preview with sample expenses** exercises the central
 
 ```bash
 npm run test:suggestions
+npm run verify:receipt-flow
 npm run build
 npm run reference:preview
 ```
+
+Receipt OCR runs through the authenticated `extract-receipt` Edge Function (Mindee on the server). Never put OCR or service-role secrets in `VITE_*` — see [docs/RECEIPT_OCR.md](./docs/RECEIPT_OCR.md).
 
 ## Docs
 - [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) — consolidated increments A→D
 - [FEATURE_STATUS.md](./FEATURE_STATUS.md)
 - [DESIGN_PARITY.md](./DESIGN_PARITY.md)
 - [docs/SETUP.md](./docs/SETUP.md) — minimum backend config
+- [docs/APPLY_MIGRATIONS.md](./docs/APPLY_MIGRATIONS.md)
+- [docs/RECEIPT_OCR.md](./docs/RECEIPT_OCR.md)
 - [docs/LEGACY_MIGRATION.md](./docs/LEGACY_MIGRATION.md)
 
 ## Rules
