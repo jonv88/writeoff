@@ -130,7 +130,10 @@ export function AppShell() {
           A few quick decisions now. Organized records when you need them.
           <br />
           <span style={{ color: '#4f7146' }}>
-            ✦ {localPreview ? 'Local preview · this device only' : 'Saved to your account'}
+            ✦{' '}
+            {localPreview
+              ? 'Local preview · this browser only · does not sync across devices'
+              : 'Saved to your account'}
           </span>
         </div>
       </aside>
@@ -161,8 +164,9 @@ export function AppShell() {
         </header>
         {localPreview && (
           <div className="notice" style={{ marginTop: 18 }}>
-            Local preview with synthetic fixtures — not cloud sync. Auth, storage and isolation still
-            need a Writeoff Supabase project to be verified.
+            <strong>Browser-local storage only</strong> — expenses and receipts on this device do{' '}
+            <strong>not sync</strong> to your phone, another Mac, or the cloud. Sample data is
+            synthetic. Cloud accounts, bank linking, and purchases are unavailable.
           </div>
         )}
         <section className="heading">
@@ -235,7 +239,10 @@ export function AppShell() {
         </div>
         <footer>
           <span>
-            ◈ {localPreview ? 'Saved on this device (local preview)' : 'Saved to your signed-in account'}{' '}
+            ◈{' '}
+            {localPreview
+              ? 'Saved in this browser only (does not sync across devices)'
+              : 'Saved to your signed-in account'}{' '}
             · Export anytime in Setup.
           </span>
           <span>U.S. expense-organizing suggestions · Tax eligibility needs review.</span>

@@ -1,7 +1,7 @@
 import { useWorkspace } from '../context/WorkspaceContext';
 
 export function AccountsScreen({ onImport }: { onImport: () => void }) {
-  const { records } = useWorkspace();
+  const { records, localPreview } = useWorkspace();
   const csvCount = records.filter((r) => r.source === 'CSV import').length;
 
   return (
@@ -15,10 +15,11 @@ export function AccountsScreen({ onImport }: { onImport: () => void }) {
           never requested here.
         </p>
         <div className="notice" style={{ margin: '21px 0' }}>
-          Connecting Finances to ChatGPT does not automatically connect an account to this app. No
-          live transactions are being imported or refreshed here.
+          {localPreview
+            ? 'This hosted preview cannot link banks or cards. Cloud accounts and purchases are also unavailable.'
+            : 'Connecting Finances to ChatGPT does not automatically connect an account to this app. No live transactions are being imported or refreshed here.'}
         </div>
-        <span className="badge statuspending">Bank integration pending</span>
+        <span className="badge statuspending">Bank integration unavailable</span>
         <div className="sectiontitle">
           <h2>Use a statement for now.</h2>
         </div>
@@ -43,7 +44,15 @@ export function AccountsScreen({ onImport }: { onImport: () => void }) {
         </div>
         <div className="rule">
           <span>Storage</span>
-          <b>Signed-in account (Supabase)</b>
+          <b>
+            {localPreview
+              ? 'This browser only (does not sync)'
+              : 'Signed-in account (Supabase)'}
+          </b>
+        </div>
+        <div className="rule">
+          <span>Cloud accounts / purchases</span>
+          <b>{localPreview ? 'Unavailable' : 'Configured when signed in'}</b>
         </div>
         <div className="rule">
           <span>Statement imports</span>

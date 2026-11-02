@@ -35,8 +35,9 @@ export function AuthScreen({ onLocalPreview }: { onLocalPreview?: () => void }) 
       <div className="kicker">BROWSER PREVIEW · NO CLOUD REQUIRED</div>
       <h1>Try Writeoff on this device.</h1>
       <p>
-        Explore suggestions, review Business / Personal / Split, attach receipts, and export CSV.
-        Everything stays in this browser until a Writeoff cloud project is configured.
+        Explore suggestions, review Business / Personal / Split, snap receipts with on-device OCR,
+        and export CSV. Records stay in this browser’s local storage — they do{' '}
+        <strong>not sync across devices</strong> (Mac and iPhone keep separate copies).
       </p>
       <div className="notice" style={{ marginTop: 16 }}>
         <strong>Sample data</strong> is synthetic (Demo Studio) — not anyone’s real finances.{' '}
@@ -52,9 +53,9 @@ export function AuthScreen({ onLocalPreview }: { onLocalPreview?: () => void }) 
         </button>
       </div>
       <p className="formhint" style={{ marginTop: 14 }}>
-        Receipt photos attach locally. Automatic OCR text extraction is <strong>not available</strong>{' '}
-        in this preview — enter merchant, date, and amount yourself. Bank linking and purchases are
-        unavailable.
+        Receipt OCR runs in your browser (Tesseract.js) — free, no API keys. Fields stay editable;
+        accuracy varies (prefer JPEG/PNG; HEIC/PDF limited). Cloud accounts, bank linking, and
+        purchases are unavailable.
       </p>
     </>
   );

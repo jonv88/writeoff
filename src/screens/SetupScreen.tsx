@@ -173,7 +173,7 @@ export function SetupScreen({ onSetup }: { onSetup: () => void }) {
           <h2>Your records, backed up.</h2>
           <p className="helper" style={{ margin: '13px 0' }}>
             {localPreview
-              ? 'Export a CSV of the expenses stored in this browser. Local preview is not cloud sync.'
+              ? 'Export a CSV of expenses stored in this browser. Local preview does not sync across devices or to the cloud.'
               : 'Export a CSV of your cloud records. Full backup-with-receipts download expands in a later phase.'}
           </p>
           <div className="inlinebuttons">
@@ -192,9 +192,9 @@ export function SetupScreen({ onSetup }: { onSetup: () => void }) {
           <div className="panel">
             <h2>Local preview controls</h2>
             <p className="helper" style={{ margin: '12px 0' }}>
-              Sample data is clearly labeled synthetic (Demo Studio). Reset clears this device’s
-              preview workspace. Cloud auth, OCR extraction, banks, and purchases stay unavailable
-              here.
+              Sample data is clearly labeled synthetic (Demo Studio). Reset clears this browser’s
+              preview workspace. Data does <strong>not sync across devices</strong>. Cloud accounts,
+              bank linking, and purchases stay unavailable.
             </p>
             <div className="inlinebuttons">
               <button type="button" className="btn" onClick={loadSampleData}>
@@ -206,7 +206,7 @@ export function SetupScreen({ onSetup }: { onSetup: () => void }) {
                 onClick={() => {
                   if (
                     window.confirm(
-                      'Clear all local preview expenses, setup, and preferences on this device?',
+                      'Clear all local preview expenses, setup, and preferences in this browser?',
                     )
                   ) {
                     resetToEmpty();
@@ -217,8 +217,9 @@ export function SetupScreen({ onSetup }: { onSetup: () => void }) {
               </button>
             </div>
             <div className="notice" style={{ marginTop: 14 }}>
-              Automatic receipt OCR is not available in local preview — attach a file and enter
-              details manually. This is not a simulated OCR success.
+              Receipt OCR uses free on-device Tesseract.js in this browser (no API keys). Fields stay
+              editable; accuracy varies. Prefer JPEG/PNG — HEIC/PDF are limited. Not a fake OCR
+              demo.
             </div>
           </div>
         )}

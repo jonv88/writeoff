@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { categoryFor, today, uid } from '../../lib/core';
-import { extractReceipt, isOcrConfigured } from '../../lib/ocr/adapter';
+import { extractReceipt, isBrowserOcrAvailable } from '../../lib/ocr/adapter';
 import { suggestWriteOff } from '../../lib/writeoffEngine';
 import { emptyExpense } from '../../lib/types';
 import { useWorkspace } from '../../context/WorkspaceContext';
@@ -30,9 +30,11 @@ export function SnapReceiptDialog({
   const [busy, setBusy] = useState(false);
   const [matchId, setMatchId] = useState<string>('');
   const [serverStoragePath, setServerStoragePath] = useState<string | null>(null);
+  const [ocrProvider, setOcrProvider] = useState<string | null>(null);
   const [extractionStatus, setExtractionStatus] = useState<
     'none' | 'ready' | 'needs_details' | 'failed' | 'blocked'
   >('none');
+  const [extractionVersion, setExtractionVersion] = useState('');
 
   useEffect(() => {
     const el = ref.current;
@@ -51,7 +53,9 @@ export function SnapReceiptDialog({
       setError('');
       setMatchId('');
       setServerStoragePath(null);
+      setOcrProvider(null);
       setExtractionStatus('none');
+      setExtractionVersion('');
       el.showModal();
     } else if (!open && el.open) {
       el.close();
@@ -83,26 +87,21 @@ export function SnapReceiptDialog({
     setFile(f);
     const url = URL.createObjectURL(f);
     setPreviewUrl(url);
-    // Local / unconfigured: skip OCR call entirely — no fake extraction values.
-    if (localPreview || !isOcrConfigured()) {
-      setStatusMsg(
-        'Receipt attached for manual review. Automatic extraction is not available — enter the details below.',
-      );
-      setMerchant('');
-      setDate(today());
-      setAmount('');
-      setCurrency('USD');
-      setUncertain(['merchant', 'date', 'total']);
-      setServerStoragePath(null);
-      setExtractionStatus('blocked');
-      setPhase('review');
-      return;
-    }
 
     setPhase('reading');
-    setStatusMsg('Uploading & reading receipt…');
+    setStatusMsg(
+      localPreview || isBrowserOcrAvailable()
+        ? 'Loading on-device OCR…'
+        : 'Uploading & reading receipt…',
+    );
+
     const draftId = uid();
-    const result = await extractReceipt(f, { expenseId: draftId });
+    const result = await extractReceipt(f, {
+      expenseId: draftId,
+      preferBrowser: localPreview,
+      onProgress: (msg) => setStatusMsg(msg),
+    });
+
     setStatusMsg(result.message);
     setMerchant(result.merchant || '');
     setDate(result.date || today());
@@ -110,6 +109,8 @@ export function SnapReceiptDialog({
     setCurrency(result.currency || 'USD');
     setUncertain(result.uncertainFields);
     setServerStoragePath(result.storagePath || null);
+    setOcrProvider(result.provider || null);
+    setExtractionVersion(result.version || '');
     setExtractionStatus(
       result.status === 'ready' ||
         result.status === 'needs_details' ||
@@ -120,7 +121,6 @@ export function SnapReceiptDialog({
     );
     setPhase('review');
 
-    // Suggest match by merchant/date/amount when possible
     if (result.merchant && result.date && result.total != null) {
       const hit = records.find(
         (r) =>
@@ -134,7 +134,16 @@ export function SnapReceiptDialog({
 
   const draftCategory = categoryFor(merchant);
   const suggestion = suggestWriteOff(
-    { merchant, category: draftCategory, type: 'Unsorted', notes, reviewed: false, treatmentSource: 'suggestion', percent: 0, eligibilityChecked: false },
+    {
+      merchant,
+      category: draftCategory,
+      type: 'Unsorted',
+      notes,
+      reviewed: false,
+      treatmentSource: 'suggestion',
+      percent: 0,
+      eligibilityChecked: false,
+    },
     profile,
     rules,
   );
@@ -164,7 +173,7 @@ export function SnapReceiptDialog({
             : extractionStatus === 'blocked'
               ? ('needs_details' as const)
               : extractionStatus,
-        extractionVersion: suggestion.ruleVersion,
+        extractionVersion: extractionVersion || suggestion.ruleVersion,
       };
 
       if (matchId) {
@@ -178,7 +187,6 @@ export function SnapReceiptDialog({
               ? { ...receiptMeta, storagePath: serverStoragePath }
               : existing.receipt,
           },
-          // Re-upload only when the edge function did not already store the file.
           serverStoragePath ? null : file,
         );
         showToast('Receipt attached to the matching expense.');
@@ -212,6 +220,8 @@ export function SnapReceiptDialog({
     }
   }
 
+  const browserMode = localPreview || ocrProvider === 'tesseract.js';
+
   return (
     <dialog
       id="snapReceiptdialog"
@@ -230,11 +240,12 @@ export function SnapReceiptDialog({
           </button>
         </div>
         <p>Photograph or choose a receipt. No bank connection required.</p>
-        {(localPreview || !isOcrConfigured()) && (
+        {browserMode && (
           <div className="notice" style={{ marginBottom: 12 }}>
-            Automatic text extraction is <strong>not available</strong> in this preview. Attach the
-            file, then enter merchant, date, and amount yourself. This is not a simulated OCR
-            success.
+            <strong>On-device OCR</strong> (Tesseract.js) runs in this browser — no Supabase or paid
+            API keys. Accuracy varies; merchant, date, and amount stay editable. HEIC and PDF are
+            limited — prefer JPEG/PNG. English text works best; large photos can take a while on
+            phones.
           </div>
         )}
 
@@ -250,8 +261,11 @@ export function SnapReceiptDialog({
               />
             </label>
             <p className="formhint">
-              JPEG, PNG, WebP, HEIC or PDF · up to 3 MB. Cancel anytime — nothing is saved until you
-              confirm. The file stays with the expense on this device in local preview.
+              JPEG, PNG, or WebP preferred · up to 3 MB. Cancel anytime — nothing is saved until you
+              confirm.
+              {localPreview
+                ? ' The file and extracted fields stay in this browser only — they do not sync across devices.'
+                : ''}
             </p>
           </div>
         )}
@@ -277,6 +291,12 @@ export function SnapReceiptDialog({
               </div>
             )}
             <div className={`notice ${uncertain.length ? 'warningnote' : ''}`}>{statusMsg}</div>
+            {ocrProvider === 'tesseract.js' && (
+              <p className="formhint">
+                Provider: browser Tesseract.js (free preview). Not a cloud OCR demo — real on-device
+                text recognition with honest accuracy limits.
+              </p>
+            )}
             {uncertain.length > 0 && (
               <p className="formhint">Check highlighted fields: {uncertain.join(', ')}.</p>
             )}

@@ -1,12 +1,15 @@
 /**
- * Browser OCR client — calls the authenticated `extract-receipt` Edge Function.
+ * Receipt OCR adapter.
  *
- * Public only: VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY (or publishable key).
+ * - Local / unconfigured preview: free in-browser Tesseract.js (no API keys).
+ * - Cloud: authenticated `extract-receipt` Edge Function (Mindee server-side).
+ *
  * Never put MINDEE_API_KEY, service_role, or other OCR secrets in VITE_* vars.
  */
 
 import { getSupabase } from '../supabase';
 import { config, isSupabaseConfigured } from '../config';
+import { extractWithBrowserOcr } from './browserOcr';
 
 export interface OcrExtraction {
   merchant: string | null;
@@ -48,31 +51,42 @@ function blocked(message: string): OcrExtraction {
   };
 }
 
-/** True when the public Supabase app is configured (function URL is derived). */
-export function isOcrConfigured(): boolean {
+/** True when cloud Edge Function OCR is available (Supabase configured). */
+export function isCloudOcrConfigured(): boolean {
   return isSupabaseConfigured();
+}
+
+/** @deprecated Prefer isCloudOcrConfigured — browser OCR works without Supabase. */
+export function isOcrConfigured(): boolean {
+  return isCloudOcrConfigured();
+}
+
+/** Browser OCR (Tesseract.js) is always available in this build — no secrets. */
+export function isBrowserOcrAvailable(): boolean {
+  return true;
 }
 
 export async function extractReceipt(
   file: File,
-  options?: { expenseId?: string },
+  options?: { expenseId?: string; onProgress?: (msg: string) => void; preferBrowser?: boolean },
 ): Promise<OcrExtraction> {
-  if (!isSupabaseConfigured()) {
-    return blocked(
-      'Cloud backend is not configured. Enter details from the photo — OCR runs through the extract-receipt Edge Function once Supabase is connected.',
-    );
+  // Local preview / no Supabase: free on-device OCR only.
+  if (options?.preferBrowser || !isSupabaseConfigured()) {
+    return extractWithBrowserOcr(file, options?.onProgress);
   }
 
   const sb = getSupabase();
-  if (!sb) return blocked('Supabase client unavailable.');
+  if (!sb) {
+    return extractWithBrowserOcr(file, options?.onProgress);
+  }
 
   const {
     data: { session },
   } = await sb.auth.getSession();
   if (!session?.access_token) {
-    return blocked(
-      'Sign in to run receipt extraction. Local preview supports manual entry only (OCR requires an authenticated session).',
-    );
+    // Signed-out but cloud configured: still offer browser OCR rather than blocking.
+    options?.onProgress?.('Using on-device OCR (sign in for cloud extraction)…');
+    return extractWithBrowserOcr(file, options?.onProgress);
   }
 
   const body = new FormData();
@@ -80,6 +94,7 @@ export async function extractReceipt(
   if (options?.expenseId) body.append('expense_id', options.expenseId);
 
   const url = `${config.supabaseUrl}/functions/v1/extract-receipt`;
+  options?.onProgress?.('Uploading & reading receipt…');
 
   try {
     const res = await fetch(url, {
