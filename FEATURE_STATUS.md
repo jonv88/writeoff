@@ -1,46 +1,62 @@
-# Writeoff — Feature Status (Phase A)
+# Writeoff — Feature Status
 
-Last updated: 2026-11-02
+Last updated: 2026-11-02 (consolidated scope)
 
-Legend: **Done** · **Partial** · **Blocked** · **Not started** (later phase)
+Legend: **Done** · **Partial** · **Blocked** · **Not started**
 
-## Phase A scope
+## A — Foundation
 
 | Capability | Status | Notes |
 | --- | --- | --- |
-| Template hash lock verified | Done | Matches `TEMPLATE_LOCK.json` + `SHA256SUMS` |
-| Kit rules in repo | Done | `AGENTS.md`, `.cursor/rules/preserve-template.mdc`, lock, immutable `reference-template/` |
-| Baseline screenshots (4 viewports) | Done | `media/phase-a/baselines/` (+ parent store copies) |
-| React + TS + Vite scaffold | Done | Preserves template CSS/DOM classes |
-| Capacitor iOS shell wiring | Partial | `@capacitor/*` + `capacitor.config.ts`; `npx cap add ios` needs macOS/Xcode — **not run here** |
-| Five screens visual shell | Done | Review, Expenses, Receipts, Accounts, Setup |
-| Auth (sign-up / in / out / reset / session) | Partial | Implemented against Supabase JS; **runtime blocked** without Writeoff project keys |
-| Profiles + expenses + rules CRUD | Partial | Client + migration ready; needs applied DB |
-| Private receipt Storage upload | Partial | Upload/signed URL code + RLS policies in migration; needs bucket on project |
-| RLS ownership policies | Done (in migration) | Not yet applied to a live Writeoff project in this environment |
-| Two-customer isolation test | Blocked | Requires two auth users on a live project |
-| Legacy localStorage migration | Partial | Detection + explicit import in Setup; receipt data-URLs not auto-uploaded |
-| CSV import / export | Done (app-level) | Same rules as prototype; persists to Supabase when configured |
-| Bank linking | Not started | Honest “pending” copy on Accounts (Phase C) |
-| OCR / Snap a receipt | Not started | Phase B; Accounts/Receipts copy stays truthful |
-| Subscriptions / StoreKit | Not started | Phase D |
-| App Store submit | Not started | Explicitly out of scope |
+| Template hash lock | Done | `npm run verify:template` |
+| Kit rules + immutable reference | Done | |
+| Baseline screenshots (4 viewports) | Done | `media/phase-a/baselines/` |
+| React/Vite/TS + template CSS | Done | |
+| Five screens shell | Done | Review, Expenses, Receipts, Accounts, Setup |
+| Capacitor config | Partial | No `ios/` project (needs macOS/Xcode) |
+| Auth / session client | Partial | Code ready; **not verified** without Writeoff Supabase |
+| Profiles / expenses / receipts CRUD | Partial | Client + SQL; needs live project |
+| RLS policies in migration | Done (SQL) | **Not verified** live |
+| Two-customer isolation | Blocked | Needs configured backend + two users |
+| Legacy localStorage import | Partial | Explicit Setup import; local preview also available |
+
+## B — Central product loop
+
+| Capability | Status | Notes |
+| --- | --- | --- |
+| Profile-aware suggestion engine | Done (client) | Structured statuses; rule pack versioned; unit script |
+| Editable treatments | Done (client) | User overrides labeled; not silent tax verification |
+| Business use vs eligible % | Done | Kept separate in model + summaries |
+| Snap a receipt UI | Done | Camera/file → review → save/match |
+| OCR extraction | Blocked / Partial | Adapter ready; **blocked** without `VITE_OCR_ENDPOINT` — manual entry works |
+| Notes | Done | Expense + decision + snap flows |
+| Summaries (total / possible / eligible) | Done | Stats cards |
+| Filters + search | Done | Use, year, category, suggestion status, missing receipt |
+| CSV export | Done | Includes status, treatment, rule metadata |
+| Manual + CSV share same engine | Done | |
+| Local preview demo path | Done | Synthetic fixtures; not cloud sync |
+| Cloud persistence of B fields | Partial | Migration `20261102220000_phase_b_suggestions.sql` ready |
+
+## C / D (planned, secondary)
+
+| Capability | Status |
+| --- | --- |
+| Bank / Plaid Sandbox | Not started (Accounts stays honest “pending”) |
+| Subscriptions / web MVP billing | Not started |
+| App Store / Play submit | Not started |
 
 ## Blockers (honest)
 
-1. **Writeoff Supabase project credentials** — Account has unrelated projects (`Rhev`, `RHEV Development`). No Writeoff project was created (would incur org compute cost / needs owner confirmation). Supply `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` and apply `supabase/migrations/20261102190000_phase_a_foundation.sql`.
-2. **Docker / local Supabase** — Not available in this Cloud Agent environment; cannot run `supabase start` here.
-3. **macOS / Xcode** — Cannot produce a signed iOS build or add the native `ios/` project on this Linux host.
-4. **Email confirmation / SMTP** — Depends on Supabase Auth settings once the project exists.
-5. **OCR provider credentials** — Phase B blocker (listed early for planning).
-6. **Plaid / RevenueCat / Apple** — Later phases; not faked.
+1. **Dedicated Writeoff Supabase** — `VITE_SUPABASE_URL` + anon/publishable key; apply both migrations. Rhev projects not reused. Auth/storage/isolation **unverified** until then.
+2. **OCR server endpoint** — `VITE_OCR_ENDPOINT` (and optional `VITE_OCR_AUTH_TOKEN`). Without it, Snap still works with manual field entry.
+3. **Docker / local Supabase** — unavailable in this agent environment.
+4. **macOS / Xcode** — native Capacitor iOS project not generated here.
+5. **Plaid / subscription / Apple-Google billing** — later increments; not faked.
 
-## What continues without those credentials
-- Runnable UI build and reference preview
-- Design-parity documentation and baselines
-- Migration SQL and client data layer
-- Legacy migration UX (detect / explicit import)
-- Honest empty/pending integration states
+## What a customer can do now
 
-## Customer-visible Phase A (once credentials applied)
-A customer can create an account, complete brief setup, add/edit/delete expenses, attach receipt files to private storage, import CSV statements, review Business/Personal/Split, export CSV, and optionally import prior browser prototype data after preview. Banks, OCR, and subscriptions remain unavailable and labeled as such.
+**With local preview:** seed sample expenses, see profile-aware suggestions, confirm Business/Personal/Split, Snap a receipt (manual OCR path), filter/export CSV, view summaries that distinguish totals vs possible write-offs vs eligible %.
+
+**With Supabase + migrations:** same loop with cloud accounts, private receipt storage, and cross-device sync — after credentials are supplied and isolation is tested.
+
+Banks, automatic OCR, and subscriptions remain unavailable or blocked as listed above.

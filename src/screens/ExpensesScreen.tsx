@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { categories, money, recordDate } from '../lib/core';
+import { categories, money, recordDate, suggest } from '../lib/core';
 import { useWorkspace } from '../context/WorkspaceContext';
 import { Stats } from '../components/Stats';
 
@@ -14,11 +14,12 @@ export function ExpensesScreen({
   onlyMissingExternal?: boolean;
   onClearMissingExternal?: () => void;
 }) {
-  const { records, showToast } = useWorkspace();
+  const { records, profile, rules, showToast } = useWorkspace();
   const [search, setSearch] = useState('');
   const [scope, setScope] = useState('All');
   const [year, setYear] = useState('');
   const [filterCat, setFilterCat] = useState('');
+  const [statusFilter, setStatusFilter] = useState('All');
   const [onlyMissing, setOnlyMissing] = useState(false);
 
   useEffect(() => {
@@ -34,15 +35,21 @@ export function ExpensesScreen({
   );
 
   const filtered = records
-    .filter(
-      (r) =>
+    .filter((r) => {
+      const sug = suggest(r, profile, rules);
+      return (
         (!onlyMissing || !r.receipt) &&
         (scope === 'All' || r.type === scope) &&
         (!year || r.date.startsWith(year)) &&
         (!filterCat || r.category === filterCat) &&
+        (statusFilter === 'All' || sug.status === statusFilter) &&
         (!search ||
-          [r.merchant, r.entity, r.notes, r.account].join(' ').toLowerCase().includes(search.toLowerCase())),
-    )
+          [r.merchant, r.entity, r.notes, r.account]
+            .join(' ')
+            .toLowerCase()
+            .includes(search.toLowerCase()))
+      );
+    })
     .sort((a, b) => b.date.localeCompare(a.date));
 
   function exportCSV() {
@@ -54,33 +61,46 @@ export function ExpensesScreen({
         'Use',
         'Business share (%)',
         'Use reviewed',
-        'Amount (USD)',
+        'Amount',
+        'Currency',
+        'Possible write-off status',
         'Eligible portion (%)',
         'Eligibility checked',
         'User-marked eligible amount',
+        'Treatment source',
         'Notes',
         'Entity',
         'Account',
         'Source',
         'Receipt filename',
+        'Rule id',
+        'Rule version',
       ],
-      ...filtered.map((r) => [
-        r.merchant,
-        r.date,
-        r.category,
-        r.type,
-        String(r.share || 0),
-        r.reviewed ? 'Yes' : 'No',
-        String(r.amount),
-        String(r.percent || 0),
-        r.eligibilityChecked ? 'Yes' : 'No',
-        r.eligibilityChecked ? ((r.amount * r.percent) / 100).toFixed(2) : '0.00',
-        r.notes,
-        r.entity,
-        r.account,
-        r.source,
-        r.receipt?.name || '',
-      ]),
+      ...filtered.map((r) => {
+        const sug = suggest(r, profile, rules);
+        return [
+          r.merchant,
+          r.date,
+          r.category,
+          r.type,
+          String(r.share || 0),
+          r.reviewed ? 'Yes' : 'No',
+          String(r.amount),
+          r.currency || 'USD',
+          sug.status,
+          String(r.percent || 0),
+          r.eligibilityChecked ? 'Yes' : 'No',
+          r.eligibilityChecked ? ((r.amount * r.percent) / 100).toFixed(2) : '0.00',
+          r.treatmentSource || 'suggestion',
+          r.notes,
+          r.entity,
+          r.account,
+          r.source,
+          r.receipt?.name || '',
+          sug.ruleId,
+          sug.ruleVersion,
+        ];
+      }),
     ];
     const cell = (v: string) => `"${String(v ?? '').replace(/^[\s]*[=+@-]/, "'$&").replace(/"/g, '""')}"`;
     const blob = new Blob(['\uFEFF' + rows.map((row) => row.map(cell).join(',')).join('\r\n')], {
@@ -150,6 +170,19 @@ export function ExpensesScreen({
             {categories.map((x) => (
               <option key={x}>{x}</option>
             ))}
+          </select>
+          <select
+            id="statusfilter"
+            aria-label="Write-off status"
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+          >
+            <option value="All">All suggestion states</option>
+            <option value="possible_writeoff">Possible write-off</option>
+            <option value="needs_detail">Needs one detail</option>
+            <option value="no_writeoff_identified">No write-off identified</option>
+            <option value="user_entered">User-entered treatment</option>
+            <option value="transfer_check">Check for a transfer</option>
           </select>
         </div>
         <div className="tablewrap">

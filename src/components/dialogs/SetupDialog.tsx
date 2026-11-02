@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useWorkspace } from '../../context/WorkspaceContext';
-import type { Industry, ProfileMode, WorkType } from '../../lib/types';
+import type { EntityType, Industry, ProfileMode, WorkType } from '../../lib/types';
 
 export function SetupDialog({
   open,
@@ -16,6 +16,9 @@ export function SetupDialog({
   const [worktype, setWorktype] = useState<WorkType>(profile.worktype);
   const [industry, setIndustry] = useState<Industry>(profile.industry);
   const [country, setCountry] = useState(profile.country);
+  const [jurisdiction, setJurisdiction] = useState(profile.jurisdiction || '');
+  const [taxYear, setTaxYear] = useState(profile.taxYear || new Date().getFullYear());
+  const [entityType, setEntityType] = useState<EntityType>(profile.entityType || 'unspecified');
 
   useEffect(() => {
     const el = ref.current;
@@ -26,6 +29,9 @@ export function SetupDialog({
       setWorktype(profile.worktype);
       setIndustry(profile.industry);
       setCountry(profile.country);
+      setJurisdiction(profile.jurisdiction || '');
+      setTaxYear(profile.taxYear || new Date().getFullYear());
+      setEntityType(profile.entityType || 'unspecified');
       el.showModal();
     } else if (!open && el.open) {
       el.close();
@@ -40,6 +46,9 @@ export function SetupDialog({
       worktype,
       industry,
       country,
+      jurisdiction: country === 'US' ? jurisdiction : '',
+      taxYear,
+      entityType,
       complete: true,
     });
     onClose();
@@ -117,16 +126,58 @@ export function SetupDialog({
             <option value="trades">Trades & field services</option>
           </select>
         </label>
-        <label>
-          Tax country
-          <select id="country" value={country} onChange={(e) => setCountry(e.target.value)}>
-            <option value="US">United States</option>
-            <option value="other">Another country</option>
-          </select>
-        </label>
+        <div className="row">
+          <label>
+            Tax country
+            <select id="country" value={country} onChange={(e) => setCountry(e.target.value)}>
+              <option value="US">United States</option>
+              <option value="other">Another country</option>
+            </select>
+          </label>
+          <label>
+            Tax year
+            <input
+              type="number"
+              min={2020}
+              max={2100}
+              value={taxYear}
+              onChange={(e) => setTaxYear(Number(e.target.value))}
+              required
+            />
+          </label>
+        </div>
+        {country === 'US' && (
+          <div className="row">
+            <label>
+              State / jurisdiction (optional)
+              <input
+                maxLength={2}
+                placeholder="e.g. CA"
+                value={jurisdiction}
+                onChange={(e) => setJurisdiction(e.target.value.toUpperCase())}
+              />
+            </label>
+            <label>
+              Entity type (when relevant)
+              <select
+                value={entityType}
+                onChange={(e) => setEntityType(e.target.value as EntityType)}
+              >
+                <option value="unspecified">Not specified yet</option>
+                <option value="sole_prop">Sole proprietor</option>
+                <option value="llc">LLC</option>
+                <option value="corp">Corporation</option>
+                <option value="partnership">Partnership</option>
+                <option value="employee">Employee</option>
+                <option value="personal">Personal only</option>
+              </select>
+            </label>
+          </div>
+        )}
         <div className="notice">
           Suggestions organize possible tax records. They do not calculate tax savings or determine
-          whether an expense qualifies.
+          whether an expense qualifies. Unsupported entity types stay as organized records with a
+          clear review state.
         </div>
         <div className="dialogactions">
           <button type="button" className="btn secondary" onClick={onClose}>

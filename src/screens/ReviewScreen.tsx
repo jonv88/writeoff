@@ -23,6 +23,7 @@ export function ReviewScreen({
   onSetup,
   onAdd,
   onImport,
+  onSnap,
   onEdit,
   onDecide,
   onPersonal,
@@ -31,6 +32,7 @@ export function ReviewScreen({
   onSetup: () => void;
   onAdd: () => void;
   onImport: () => void;
+  onSnap: () => void;
   onEdit: (id: string) => void;
   onDecide: (id: string, use: 'Business' | 'Split') => void;
   onPersonal: (id: string) => void;
@@ -134,7 +136,10 @@ export function ReviewScreen({
                   : 'Add one expense or import a statement. We’ll organize it for a quick review.'}
               </p>
               <div className="actions">
-                <button type="button" className="btn" onClick={onImport}>
+                <button type="button" className="btn" onClick={onSnap}>
+                  Snap a receipt
+                </button>
+                <button type="button" className="btn secondary" onClick={onImport}>
                   Import a statement
                 </button>
                 <button type="button" className="btn secondary" onClick={onAdd}>

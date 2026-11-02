@@ -98,6 +98,7 @@ export function ExpenseDialog({
         id: old?.id || uid(),
         merchant: merchant.trim(),
         amount: amountNum,
+        currency: old?.currency || 'USD',
         date,
         category,
         type,
@@ -106,10 +107,11 @@ export function ExpenseDialog({
         notes: notes.trim(),
         percent,
         eligibilityChecked: percent > 0 && eligibilityChecked,
-        reviewed: type !== 'Unsorted' && !!old?.reviewed,
+        reviewed: type !== 'Unsorted' ? true : !!old?.reviewed,
         source: old?.source || 'Manual expense',
         account: old?.account || '',
         receipt: old?.receipt || null,
+        treatmentSource: 'user',
       };
       await saveRecord(record, file);
       onClose();

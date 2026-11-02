@@ -11,6 +11,9 @@ type ProfileRow = {
   country: string;
   name: string;
   complete: boolean;
+  jurisdiction?: string | null;
+  tax_year?: number | null;
+  entity_type?: Profile['entityType'] | null;
 };
 
 type ExpenseRow = {
@@ -29,6 +32,12 @@ type ExpenseRow = {
   source: string;
   account_label: string | null;
   fingerprint: string | null;
+  currency?: string | null;
+  treatment_source?: ExpenseRecord['treatmentSource'] | null;
+  suggested_status?: ExpenseRecord['suggestedStatus'] | null;
+  suggestion_rule_id?: string | null;
+  suggestion_rule_version?: string | null;
+  suggestion_reason?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -54,6 +63,7 @@ function mapExpense(row: ExpenseRow, receipt: ReceiptMeta | null): ExpenseRecord
     id: row.id,
     merchant: row.merchant,
     amount: row.amount_cents / 100,
+    currency: row.currency || 'USD',
     date: row.expense_date,
     category: row.category,
     type: row.use_type,
@@ -67,6 +77,11 @@ function mapExpense(row: ExpenseRow, receipt: ReceiptMeta | null): ExpenseRecord
     account: row.account_label || '',
     receipt,
     fingerprint: row.fingerprint || undefined,
+    treatmentSource: row.treatment_source || 'suggestion',
+    suggestedStatus: row.suggested_status || undefined,
+    suggestionRuleId: row.suggestion_rule_id || undefined,
+    suggestionRuleVersion: row.suggestion_rule_version || undefined,
+    suggestionReason: row.suggestion_reason || undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -109,6 +124,9 @@ export async function loadWorkspace(userId: string): Promise<{
         worktype: profileRow.worktype,
         industry: profileRow.industry,
         country: profileRow.country,
+        jurisdiction: profileRow.jurisdiction || '',
+        taxYear: profileRow.tax_year || new Date().getFullYear(),
+        entityType: profileRow.entity_type || 'unspecified',
         name: profileRow.name || '',
         complete: profileRow.complete,
       }
@@ -156,6 +174,9 @@ export async function saveProfile(userId: string, profile: Profile): Promise<voi
     worktype: profile.worktype,
     industry: profile.industry,
     country: profile.country,
+    jurisdiction: profile.jurisdiction,
+    tax_year: profile.taxYear,
+    entity_type: profile.entityType,
     name: profile.name,
     complete: profile.complete,
     updated_at: new Date().toISOString(),
@@ -191,6 +212,12 @@ export async function upsertExpense(userId: string, record: ExpenseRecord): Prom
     source: record.source,
     account_label: record.account || null,
     fingerprint: fp,
+    currency: record.currency || 'USD',
+    treatment_source: record.treatmentSource || 'suggestion',
+    suggested_status: record.suggestedStatus || null,
+    suggestion_rule_id: record.suggestionRuleId || null,
+    suggestion_rule_version: record.suggestionRuleVersion || null,
+    suggestion_reason: record.suggestionReason || null,
     updated_at: new Date().toISOString(),
   };
 

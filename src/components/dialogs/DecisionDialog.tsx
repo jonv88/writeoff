@@ -59,6 +59,8 @@ export function DecisionDialog({
         notes: purpose.trim(),
         percent: 0,
         eligibilityChecked: false,
+        treatmentSource: 'user',
+        currency: record.currency || 'USD',
       });
       if (remember) {
         await rememberRule({

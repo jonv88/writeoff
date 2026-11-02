@@ -1,56 +1,56 @@
 # Writeoff — Implementation Plan
 
+**Authoritative scope:** consolidated product direction (web-first subscription app that organizes expenses/receipts, suggests possible write-offs, and keeps every suggestion editable). This supersedes earlier “Phase A only / manual tracker” framing.
+
 ## Locked baseline
 - Template version: `approved-prototype-2026-11-02` (`TEMPLATE_LOCK.json`)
-- Immutable source: `reference-template/` (verify with `npm run verify:template`)
+- Immutable source: `reference-template/` (`npm run verify:template`)
 - Viewports: 375×812, 390×844, 768×1024, 1440×900
-- Baselines captured before app code: `media/phase-a/baselines/`
+- Baselines: `media/phase-a/baselines/`
+- Delivery: **responsive web first**; Capacitor shells for later App Store / Play
 
-## Stack (kit defaults)
+## Stack
 | Layer | Choice |
 | --- | --- |
-| UI | React + TypeScript + Vite |
-| Native shell | Capacitor (iOS) |
+| UI | React + TypeScript + Vite (exact template CSS/DOM) |
+| Native shells (later) | Capacitor |
 | Auth / DB / Storage | Supabase Auth + Postgres + private Storage |
-| Banks (later) | Plaid Transactions adapter — Sandbox first |
-| Subscriptions (later) | StoreKit-compatible; RevenueCat adapter if suitable |
-| OCR (later) | Server-side adapter — real extraction required in Phase B |
+| OCR | Server endpoint via `VITE_OCR_ENDPOINT` adapter |
+| Banks (secondary) | Plaid Sandbox → production later |
+| Subscriptions (secondary) | Provider-agnostic entitlements; web MVP before store billing |
 
-## Phase A — exact template + customer foundation (this PR)
-1. Verify hashes vs `TEMPLATE_LOCK.json` / `SHA256SUMS`.
-2. Copy kit rules into the repo; keep `reference-template/` immutable.
-3. Capture unmodified reference baselines at locked viewports.
-4. Scaffold React/TS/Vite/Capacitor preserving DOM/CSS/visual identity.
-5. Ship `IMPLEMENTATION_PLAN.md`, `FEATURE_STATUS.md`, `DESIGN_PARITY.md`, `.env.example`, ignores, setup docs.
-6. Supabase schema + RLS for profiles, expenses, receipts, merchant rules; private `receipts` bucket.
-7. Auth (sign-up / sign-in / reset / session restore) and customer-scoped CRUD.
-8. Preserve Review, Expenses, Receipts, Accounts, Setup screens.
-9. Document explicit legacy `localStorage` migration path (no silent upload).
+## Increment A — foundation (verify / finish)
+- Template lock, kit rules, five screens, migrations, auth/CRUD client
+- **Not verified** until a dedicated Writeoff Supabase project is configured and isolation is tested
+- Minimum backend config: see `docs/SETUP.md` and `.env.example`
 
-**Acceptance:** visual parity evidence, persistence with credentials, validation, two-customer isolation once a Writeoff Supabase project is applied.
+## Increment B — central product loop (current build focus)
+**Add expense → organize → suggest possible write-off → confirm/edit → summary/export**
 
-## Phase B — receipt-first capture + review
-Snap a receipt, camera/library, real OCR, editable draft, save/match, preferences, undo, CSV/export completion, legacy migration UX polish.
+Includes:
+- Profile-aware suggestion engine (`src/lib/writeoffEngine.ts`, rule pack `us-common` 2026.11.02)
+- Editable treatments (`treatmentSource`: suggestion / user / tax_pro); business-use % ≠ eligible %
+- Snap a receipt + OCR adapter (honest blocker when endpoint missing; manual review always available)
+- Notes, filters (incl. suggestion status), summaries distinguishing total / possible write-offs / eligible %
+- CSV export with classifications
+- Local preview mode for independent demos without cloud credentials
 
-## Phase C — banks + receipt reconciliation
-Plaid Sandbox link → sync → review; reconcile receipt-origin expenses; honest production-disabled states.
+Demonstrate: receipt / manual / CSV → suggestion → confirm/edit → summary/export.
 
-## Phase D — subscriptions + iOS preparation
-Entitlements/paywall, StoreKit/RevenueCat sandbox, native project checklist.
+## Increment C — optional bank ingestion
+Plaid Sandbox link/sync into the same expense + suggestion system; receipt match; no double-count.
 
-## Phase E — release-candidate verification
-Automated + manual parity, privacy/deletion, truthful `RELEASE_READINESS.md`.
+## Increment D — subscription web MVP
+Entitlements, paywall in template language, export/deletion; native store releases afterward.
 
-## Verification commands
+## Verification
 ```bash
 npm run verify:template
-npm install
-cp .env.example .env   # then fill real keys
-# apply supabase/migrations/* to the Writeoff project
-npm run dev
 npm run build
-npm run reference:preview   # locked template on :8080
+npm run test:suggestions
+npm run dev
+# Local preview: open app → “Local preview with sample expenses”
 ```
 
-## Non-goals for Phase A
-App Store submit, purchases, Plaid production, OCR, creator personal financial data, redesign.
+## Non-goals (without separate authorization)
+Merge to production deploy, purchases/charges, App Store/Play submit, creator personal financial data, redesign.

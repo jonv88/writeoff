@@ -3,10 +3,12 @@ import { useWorkspace } from '../context/WorkspaceContext';
 
 export function ReceiptsScreen({
   onFindMissing,
+  onSnap,
   onViewReceipt,
   onEdit,
 }: {
   onFindMissing: () => void;
+  onSnap: () => void;
   onViewReceipt: (id: string) => void;
   onEdit: (id: string) => void;
 }) {
@@ -24,8 +26,11 @@ export function ReceiptsScreen({
           </h2>
           <p>Choose an expense, then photograph or upload its receipt.</p>
         </div>
-        <button type="button" className="btn" onClick={onFindMissing}>
-          Find missing receipts →
+        <button type="button" className="btn" onClick={onSnap} style={{ marginRight: 8 }}>
+          Snap a receipt
+        </button>
+        <button type="button" className="btn secondary" onClick={onFindMissing}>
+          Find missing →
         </button>
       </div>
       <div className="receipt-list">
@@ -53,8 +58,8 @@ export function ReceiptsScreen({
         </div>
       )}
       <p className="helper" style={{ marginTop: 20 }}>
-        Receipts upload to private, customer-scoped storage. Automatic text extraction and matching
-        arrive in Phase B — they are not available yet.
+        Snap a receipt runs extraction when <code>VITE_OCR_ENDPOINT</code> is configured; otherwise
+        you review and enter details manually. Matching to an existing expense is offered before save.
       </p>
     </>
   );

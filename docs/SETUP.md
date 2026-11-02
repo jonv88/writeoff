@@ -1,55 +1,45 @@
-# Setup guide (Phase A)
+# Setup guide
 
-## 1. Verify the locked template
-```bash
-npm run verify:template
-```
-If hashes differ from `TEMPLATE_LOCK.json`, stop and restore `reference-template/`.
+## Minimum backend configuration (Writeoff)
 
-## 2. Install
-```bash
-npm install
-```
+Auth, private receipt storage, and customer isolation are **not verified** until all of the following exist:
 
-## 3. Supabase project (owner action)
-1. Create a **dedicated** Writeoff project (do not reuse unrelated apps).
-2. In the SQL editor (or `supabase db push` when linked), apply:
+1. A **dedicated** Supabase project named for Writeoff (do not reuse Rhev / other apps).
+2. Migrations applied in order:
    - `supabase/migrations/20261102190000_phase_a_foundation.sql`
-3. Confirm Auth email settings (confirmations / reset redirect to your app origin).
-4. Copy Project URL and anon (or publishable) key into `.env`:
+   - `supabase/migrations/20261102220000_phase_b_suggestions.sql`
+3. Environment variables (never commit real values):
    ```bash
    cp .env.example .env
+   # VITE_SUPABASE_URL=
+   # VITE_SUPABASE_ANON_KEY=
    ```
-5. Never commit `.env` or the service-role key.
+4. Auth email settings (confirm / reset redirect to your app origin).
+5. Isolation checklist: `docs/RLS_ISOLATION_TEST.md`
 
-## 4. Run the web app
+Optional for automatic receipt extraction:
+
 ```bash
+VITE_OCR_ENDPOINT=https://your-edge-or-api/extract
+# VITE_OCR_AUTH_TOKEN=   # optional bearer for your own endpoint
+```
+
+Without OCR env vars, **Snap a receipt** still works: users review the photo and enter details manually.
+
+## Install & run
+```bash
+npm run verify:template
+npm install
 npm run dev
 ```
-Open the printed local URL. Without env vars, the auth gate explains what is missing and links the reference preview.
 
-## 5. Reference preview
+Without Supabase keys, use **Local preview with sample expenses** to exercise the central product loop on-device.
+
 ```bash
+npm run build
+npm run test:suggestions
 npm run reference:preview
 ```
-Or, with Vite running: `/reference-preview/`.
 
-## 6. Capacitor / iOS (macOS + Xcode required)
-```bash
-npm run build
-npx cap add ios    # once
-npx cap sync ios
-npx cap open ios
-```
-This Linux environment cannot complete signed device builds. Camera permissions and StoreKit are later phases.
-
-## 7. Isolation check (after credentials)
-1. Create user A and user B.
-2. As A, add an expense and upload a receipt.
-3. As B, confirm A’s rows are invisible via the client and that Storage signed URLs for A’s paths fail for B.
-4. Record results in `FEATURE_STATUS.md`.
-
-## 8. Build check
-```bash
-npm run build
-```
+## Capacitor / iOS
+Requires macOS + Xcode. `capacitor.config.ts` is present; `npx cap add ios` was not run on Linux.

@@ -91,6 +91,7 @@ export function ImportDialog({ open, onClose, onImported }: { open: boolean; onC
         nextCandidates.push({
           ...base,
           id: uid(),
+          currency: 'USD',
           category: categoryFor(merchant),
           type: 'Unsorted',
           share: 0,
@@ -101,6 +102,7 @@ export function ImportDialog({ open, onClose, onImported }: { open: boolean; onC
           notes: '',
           entity: '',
           receipt: null,
+          treatmentSource: 'suggestion',
         });
       }
       return {

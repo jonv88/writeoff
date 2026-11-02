@@ -1,13 +1,26 @@
+import { useEffect, useState } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { WorkspaceProvider } from './context/WorkspaceContext';
 import { AuthScreen } from './components/AuthScreen';
 import { AppShell } from './components/AppShell';
+import { isLocalPreviewActive } from './lib/localWorkspace';
 
 function Gate() {
   const { configured, loading, user } = useAuth();
+  const [localPreview, setLocalPreview] = useState(() => isLocalPreviewActive());
 
-  if (!configured) return <AuthScreen />;
-  if (loading) {
+  useEffect(() => {
+    const onStorage = () => setLocalPreview(isLocalPreviewActive());
+    window.addEventListener('storage', onStorage);
+    // custom event for same-tab activation
+    window.addEventListener('writeoff-local-preview', onStorage);
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener('writeoff-local-preview', onStorage);
+    };
+  }, []);
+
+  if (loading && configured) {
     return (
       <div className="auth-shell">
         <div className="auth-panel">
@@ -20,12 +33,16 @@ function Gate() {
       </div>
     );
   }
-  if (!user) return <AuthScreen />;
-  return (
-    <WorkspaceProvider>
-      <AppShell />
-    </WorkspaceProvider>
-  );
+
+  if (user || localPreview) {
+    return (
+      <WorkspaceProvider>
+        <AppShell />
+      </WorkspaceProvider>
+    );
+  }
+
+  return <AuthScreen onLocalPreview={() => setLocalPreview(true)} />;
 }
 
 export default function App() {

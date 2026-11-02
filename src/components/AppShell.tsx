@@ -3,6 +3,7 @@ import type { ViewName } from '../lib/types';
 import { useAuth } from '../context/AuthContext';
 import { useWorkspace } from '../context/WorkspaceContext';
 import { getReceiptSignedUrl } from '../lib/data';
+import { disableLocalPreview } from '../lib/localWorkspace';
 import { ReviewScreen } from '../screens/ReviewScreen';
 import { ExpensesScreen } from '../screens/ExpensesScreen';
 import { ReceiptsScreen } from '../screens/ReceiptsScreen';
@@ -12,6 +13,7 @@ import { SetupDialog } from './dialogs/SetupDialog';
 import { ExpenseDialog } from './dialogs/ExpenseDialog';
 import { DecisionDialog } from './dialogs/DecisionDialog';
 import { ImportDialog } from './dialogs/ImportDialog';
+import { SnapReceiptDialog } from './dialogs/SnapReceiptDialog';
 import { Toast } from './Toast';
 
 const titles: Record<ViewName, [string, string]> = {
@@ -29,8 +31,9 @@ const titles: Record<ViewName, [string, string]> = {
 };
 
 export function AppShell() {
-  const { user } = useAuth();
-  const { profile, records, loading, error, saveRecord, removeRecord, showToast } = useWorkspace();
+  const { user, signOut } = useAuth();
+  const { profile, records, loading, error, localPreview, saveRecord, removeRecord, showToast } =
+    useWorkspace();
   const [view, setView] = useState<ViewName>('Review');
   const [setupOpen, setSetupOpen] = useState(false);
   const [expenseOpen, setExpenseOpen] = useState(false);
@@ -39,10 +42,11 @@ export function AppShell() {
   const [decisionId, setDecisionId] = useState<string | null>(null);
   const [decisionUse, setDecisionUse] = useState<'Business' | 'Split' | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [snapOpen, setSnapOpen] = useState(false);
   const [findMissing, setFindMissing] = useState(false);
 
   const pending = records.filter((r) => !r.reviewed).length;
-  const initials = (user?.email || 'YO').slice(0, 2).toUpperCase();
+  const initials = (user?.email || (localPreview ? 'LP' : 'YO')).slice(0, 2).toUpperCase();
 
   const openExpense = (id?: string) => {
     setExpenseId(id || null);
@@ -52,6 +56,10 @@ export function AppShell() {
   const viewReceipt = useCallback(
     async (id: string) => {
       const r = records.find((x) => x.id === id);
+      if (r?.receipt?.localPreviewUrl) {
+        window.open(r.receipt.localPreviewUrl, '_blank', 'noopener,noreferrer');
+        return;
+      }
       if (!r?.receipt?.storagePath) {
         showToast('No receipt file is available for this expense.');
         return;
@@ -76,8 +84,15 @@ export function AppShell() {
       reviewed: true,
       percent: 0,
       eligibilityChecked: false,
+      treatmentSource: 'user',
     });
     showToast('Marked personal. No deduction assumed.');
+  };
+
+  const exitLocal = () => {
+    disableLocalPreview();
+    window.dispatchEvent(new Event('writeoff-local-preview'));
+    window.location.reload();
   };
 
   return (
@@ -114,7 +129,9 @@ export function AppShell() {
           <strong>Less admin. More living.</strong>
           A few quick decisions now. Organized records when you need them.
           <br />
-          <span style={{ color: '#4f7146' }}>✦ Saved to your account</span>
+          <span style={{ color: '#4f7146' }}>
+            ✦ {localPreview ? 'Local preview · this device only' : 'Saved to your account'}
+          </span>
         </div>
       </aside>
       <main>
@@ -124,6 +141,16 @@ export function AppShell() {
             <b id="breadcrumb">{view === 'Settings' ? 'Setup' : view}</b>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            {localPreview && (
+              <button type="button" className="usepill" onClick={exitLocal}>
+                Exit local preview
+              </button>
+            )}
+            {!localPreview && user && (
+              <button type="button" className="usepill" onClick={() => void signOut()}>
+                Sign out
+              </button>
+            )}
             <button type="button" className="usepill" id="editprofile" onClick={() => setSetupOpen(true)}>
               {profile.complete
                 ? `${profile.mode} · ${profile.name || 'Your workspace'}`
@@ -132,6 +159,12 @@ export function AppShell() {
             <div className="avatar">{initials}</div>
           </div>
         </header>
+        {localPreview && (
+          <div className="notice" style={{ marginTop: 18 }}>
+            Local preview with synthetic fixtures — not cloud sync. Auth, storage and isolation still
+            need a Writeoff Supabase project to be verified.
+          </div>
+        )}
         <section className="heading">
           <div>
             <div className="kicker">LESS TO DO. MORE UNDER CONTROL.</div>
@@ -139,10 +172,13 @@ export function AppShell() {
             <p id="subtitle">{titles[view][1]}</p>
           </div>
           <div className="actions">
+            <button type="button" className="btn" onClick={() => setSnapOpen(true)}>
+              ⌗ Snap a receipt
+            </button>
             <button type="button" className="btn secondary" id="importbtn" onClick={() => setImportOpen(true)}>
               ↓ Import expenses
             </button>
-            <button type="button" className="btn" id="add" onClick={() => openExpense()}>
+            <button type="button" className="btn secondary" id="add" onClick={() => openExpense()}>
               ＋ Add expense
             </button>
           </div>
@@ -160,6 +196,7 @@ export function AppShell() {
               onSetup={() => setSetupOpen(true)}
               onAdd={() => openExpense()}
               onImport={() => setImportOpen(true)}
+              onSnap={() => setSnapOpen(true)}
               onEdit={(id) => openExpense(id)}
               onDecide={(id, use) => {
                 setDecisionId(id);
@@ -184,6 +221,7 @@ export function AppShell() {
                 setFindMissing(true);
                 setView('Expenses');
               }}
+              onSnap={() => setSnapOpen(true)}
               onViewReceipt={(id) => void viewReceipt(id)}
               onEdit={(id) => openExpense(id)}
             />
@@ -196,7 +234,10 @@ export function AppShell() {
           )}
         </div>
         <footer>
-          <span>◈ Saved to your signed-in account · Export anytime in Setup.</span>
+          <span>
+            ◈ {localPreview ? 'Saved on this device (local preview)' : 'Saved to your signed-in account'}{' '}
+            · Export anytime in Setup.
+          </span>
           <span>U.S. expense-organizing suggestions · Tax eligibility needs review.</span>
         </footer>
       </main>
@@ -225,6 +266,7 @@ export function AppShell() {
         onClose={() => setImportOpen(false)}
         onImported={() => setView('Review')}
       />
+      <SnapReceiptDialog open={snapOpen} onClose={() => setSnapOpen(false)} />
       <Toast />
     </>
   );

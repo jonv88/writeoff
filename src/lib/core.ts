@@ -1,6 +1,9 @@
-import type { ExpenseRecord, ExpenseUse, Profile, Suggestion, MerchantRule } from './types';
+/** Conservative U.S. record-organizing helpers; tax suggestions live in writeoffEngine. */
 
-/** Conservative U.S. record-organizing rules; never tax-eligibility determinations. */
+export { suggest, suggestWriteOff, statusLabel, summarizeExpenses } from './writeoffEngine';
+export type { Suggestion } from './types';
+
+/** Category list for forms and filters. */
 export const categories = [
   'Software & subscriptions',
   'Office & supplies',
@@ -42,109 +45,6 @@ export function categoryFor(merchant: string): string {
     if (rx.test(m)) return cat;
   }
   return 'Other';
-}
-
-export function suggest(
-  r: Pick<ExpenseRecord, 'merchant' | 'category'>,
-  profile: Partial<Profile> = {},
-  rules: MerchantRule[] = [],
-): Suggestion {
-  const rule = rules.find((x) => x.merchant === normalize(r.merchant));
-  const category = rule?.category || r.category || categoryFor(r.merchant);
-  const context =
-    profile.industry === 'creative'
-      ? 'creative work'
-      : profile.industry === 'retail'
-        ? 'your selling business'
-        : profile.industry === 'trades'
-          ? 'your field work'
-          : 'your business';
-
-  let use: ExpenseUse = rule?.type || (profile.mode === 'Personal' ? 'Personal' : 'Unsorted');
-  let label = 'Needs a little context';
-  let reason =
-    'A merchant name alone cannot tell us whether this expense was personal or for work.';
-  let question = 'What was this purchase used for?';
-
-  if (category === 'Transfers & payments') {
-    label = 'Check for a transfer';
-    reason =
-      'This may be a transfer or card payment. Counting it alongside the original purchases could double-count spending.';
-    question = 'Is this a payment or transfer rather than a purchase?';
-    use = 'Unsorted';
-  } else if (profile.country && profile.country !== 'US') {
-    label = 'Keep for local tax review';
-    reason =
-      'Tax suggestions currently cover U.S. record organization only. Keep the receipt for review under your local rules.';
-  } else if (category === 'Medical' || category === 'Charitable giving') {
-    label = 'Possible personal tax record';
-    use = 'Personal';
-    reason =
-      category === 'Medical'
-        ? 'This may be a medical purchase. Verify the actual items, reimbursements and applicable tax-year rules; general retail purchases may not qualify.'
-        : 'This may be a donation. Verify the recipient, any benefit received and the applicable tax-year rules.';
-    question = 'What was paid, and was any part reimbursed or received in return?';
-  } else if (profile.mode === 'Personal') {
-    label = 'Personal spending';
-    reason =
-      'Routine personal spending is generally not deductible. Keep it organized; flag an item separately if it needs tax review.';
-    use = 'Personal';
-  } else if (profile.worktype === 'employee') {
-    label = 'Employee expense — needs review';
-    reason =
-      'Employee expenses have different federal and state rules. Business use does not by itself make this deductible.';
-  } else if (
-    ['Software & subscriptions', 'Office & supplies', 'Marketing', 'Professional services'].includes(
-      category,
-    )
-  ) {
-    label = 'Possible business expense';
-    reason = `This category may support ${context}. Confirm that it was for work and record any personal portion.`;
-    use = 'Business';
-    question = `How did this support ${context}?`;
-  } else if (category === 'Travel & transport') {
-    label = 'Work trip or personal travel?';
-    reason =
-      'Business travel may need supporting records. Ordinary commuting and personal travel should not be counted as business use.';
-    question = 'Where were you going, and what was the work purpose?';
-  } else if (category === 'Meals') {
-    label = 'Meal — purpose matters';
-    reason =
-      'An everyday personal meal is not a business expense. A work-related meal needs context and may have additional limits.';
-    question = 'Who attended, and what was the business purpose?';
-  } else if (category === 'Equipment') {
-    label = 'Possible work equipment';
-    reason =
-      'Equipment may support your work, but business use, personal use and how the cost is treated need review.';
-    question = 'What did you buy, and how will you use it for work?';
-  } else if (category === 'Education & training') {
-    label = 'Training — check the connection';
-    reason =
-      'Whether training relates to your existing work, a new career or personal interests matters.';
-    question = 'How does this relate to your existing work?';
-  } else if (category === 'Home office') {
-    label = 'Home office — needs review';
-    reason =
-      'A home purchase is not automatically a business expense. Workspace-use requirements and allocation need separate review.';
-  }
-
-  if (rule && category !== 'Transfers & payments') {
-    label = 'From your saved preference';
-    reason = `You previously chose ${rule.type.toLowerCase()} for this merchant. ${
-      rule.type === 'Split' ? `Suggested business share: ${rule.share}%. ` : ''
-    }Check this purchase too; use can change.`;
-    use = rule.type;
-  }
-
-  return {
-    category,
-    use,
-    label,
-    reason,
-    question,
-    share: rule?.share || 50,
-    remembered: !!rule,
-  };
 }
 
 export function parseCSV(text: string): string[][] {

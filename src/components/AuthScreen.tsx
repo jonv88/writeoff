@@ -1,15 +1,27 @@
 import { useState, type FormEvent } from 'react';
 import { useAuth } from '../context/AuthContext';
+import {
+  enableLocalPreview,
+  saveLocalWorkspace,
+  seedDemoFixtures,
+} from '../lib/localWorkspace';
 
 type Mode = 'sign-in' | 'sign-up' | 'reset';
 
-export function AuthScreen() {
+export function AuthScreen({ onLocalPreview }: { onLocalPreview?: () => void }) {
   const { configured, signIn, signUp, resetPassword, error, clearError } = useAuth();
   const [mode, setMode] = useState<Mode>('sign-in');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [info, setInfo] = useState<string | null>(null);
+
+  function startLocal(seed: boolean) {
+    enableLocalPreview();
+    if (seed) saveLocalWorkspace(seedDemoFixtures());
+    window.dispatchEvent(new Event('writeoff-local-preview'));
+    onLocalPreview?.();
+  }
 
   if (!configured) {
     return (
@@ -21,18 +33,30 @@ export function AuthScreen() {
           </div>
           <h1>Almost ready.</h1>
           <p>
-            Customer accounts need a Supabase project. Add{' '}
-            <code>VITE_SUPABASE_URL</code> and <code>VITE_SUPABASE_ANON_KEY</code> from{' '}
-            <code>.env.example</code>, apply <code>supabase/migrations/</code>, then restart the
-            app.
+            Cloud accounts need a dedicated Writeoff Supabase project. Add{' '}
+            <code>VITE_SUPABASE_URL</code> and <code>VITE_SUPABASE_ANON_KEY</code>, apply{' '}
+            <code>supabase/migrations/</code>, then restart.
           </p>
           <div className="notice" style={{ marginTop: 20 }}>
             Existing projects under this account (Rhev / RHEV Development) were not reused. Create a
             dedicated Writeoff project, or supply credentials for one you own. No secrets are
-            committed.
+            committed. Auth, storage, and isolation are <strong>not verified</strong> until that
+            backend is configured and tested.
           </div>
+          <div className="dialogactions" style={{ justifyContent: 'flex-start', marginTop: 22 }}>
+            <button type="button" className="btn" onClick={() => startLocal(true)}>
+              Local preview with sample expenses
+            </button>
+            <button type="button" className="btn secondary" onClick={() => startLocal(false)}>
+              Empty local preview
+            </button>
+          </div>
+          <p className="formhint" style={{ marginTop: 14 }}>
+            Local preview stays on this device and is not cloud sync. Use it to exercise suggestions,
+            Snap a receipt (manual entry when OCR is unconfigured), filters and CSV export.
+          </p>
           <p className="helper" style={{ marginTop: 18 }}>
-            Reference preview (no accounts):{' '}
+            Reference preview (immutable template):{' '}
             <a href="/reference-preview/" target="_blank" rel="noreferrer">
               open locked template
             </a>
@@ -136,6 +160,9 @@ export function AuthScreen() {
               </button>
               <button type="button" className="linkbtn" onClick={() => setMode('reset')}>
                 Forgot password?
+              </button>
+              <button type="button" className="linkbtn" onClick={() => startLocal(true)}>
+                Or try local preview (this device only)
               </button>
             </>
           )}

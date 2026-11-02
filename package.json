@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "reference:preview": "python3 -m http.server 8080 --directory reference-template",
     "verify:template": "node scripts/verify-template-lock.mjs",
+    "test:suggestions": "node scripts/test-suggestions.mjs",
     "cap:sync": "npm run build && npx cap sync ios",
     "typecheck": "tsc -b --pretty false"
   },
