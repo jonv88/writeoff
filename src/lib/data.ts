@@ -246,6 +246,32 @@ export async function deleteExpense(userId: string, expenseId: string): Promise<
   if (error) throw error;
 }
 
+/** Link an already-uploaded storage object (from extract-receipt) to an expense. */
+export async function attachExistingReceipt(
+  userId: string,
+  expenseId: string,
+  meta: ReceiptMeta,
+): Promise<ReceiptMeta> {
+  const sb = getSupabase();
+  if (!sb) throw new Error('Supabase is not configured.');
+  if (!meta.storagePath || !meta.storagePath.startsWith(`${userId}/`)) {
+    throw new Error('Receipt path is missing or not owned by this account.');
+  }
+
+  await sb.from('receipts').delete().eq('user_id', userId).eq('expense_id', expenseId);
+
+  const { error } = await sb.from('receipts').insert({
+    user_id: userId,
+    expense_id: expenseId,
+    file_name: meta.name,
+    storage_path: meta.storagePath,
+    mime_type: meta.mimeType || null,
+    size_bytes: meta.sizeBytes || null,
+  });
+  if (error) throw error;
+  return meta;
+}
+
 export async function uploadReceipt(
   userId: string,
   expenseId: string,

@@ -58,8 +58,9 @@ export function ReceiptsScreen({
         </div>
       )}
       <p className="helper" style={{ marginTop: 20 }}>
-        Snap a receipt runs extraction when <code>VITE_OCR_ENDPOINT</code> is configured; otherwise
-        you review and enter details manually. Matching to an existing expense is offered before save.
+        Snap a receipt uploads through the signed-in extract-receipt service. When OCR is not
+        configured on the server, you review the photo and enter details manually. Matching to an
+        existing expense is offered before save.
       </p>
     </>
   );

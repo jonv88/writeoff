@@ -9,6 +9,7 @@ import {
 import type { ExpenseRecord, MerchantRule, Profile } from '../lib/types';
 import { defaultProfile } from '../lib/types';
 import {
+  attachExistingReceipt,
   deleteExpense,
   deleteMerchantRule,
   loadWorkspace,
@@ -180,6 +181,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         const receipt = await uploadReceipt(user.id, next.id, file);
         next = { ...next, receipt };
         next = await upsertExpense(user.id, next);
+      } else if (annotated.receipt?.storagePath?.startsWith(`${user.id}/`)) {
+        const receipt = await attachExistingReceipt(user.id, next.id, annotated.receipt);
+        next = { ...next, receipt };
       }
       setRecords((cur) => {
         const idx = cur.findIndex((r) => r.id === next.id);

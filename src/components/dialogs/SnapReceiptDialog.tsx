@@ -29,6 +29,10 @@ export function SnapReceiptDialog({
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [matchId, setMatchId] = useState<string>('');
+  const [serverStoragePath, setServerStoragePath] = useState<string | null>(null);
+  const [extractionStatus, setExtractionStatus] = useState<
+    'none' | 'ready' | 'needs_details' | 'failed' | 'blocked'
+  >('none');
 
   useEffect(() => {
     const el = ref.current;
@@ -46,6 +50,8 @@ export function SnapReceiptDialog({
       setUncertain([]);
       setError('');
       setMatchId('');
+      setServerStoragePath(null);
+      setExtractionStatus('none');
       el.showModal();
     } else if (!open && el.open) {
       el.close();
@@ -79,15 +85,27 @@ export function SnapReceiptDialog({
     setPreviewUrl(url);
     setPhase('reading');
     setStatusMsg(
-      isOcrConfigured() ? 'Reading receipt…' : 'OCR not configured — prepare manual review…',
+      isOcrConfigured()
+        ? 'Uploading & reading receipt…'
+        : 'Cloud OCR unavailable — prepare manual review…',
     );
-    const result = await extractReceipt(f);
+    const draftId = uid();
+    const result = await extractReceipt(f, { expenseId: draftId });
     setStatusMsg(result.message);
     setMerchant(result.merchant || '');
     setDate(result.date || today());
     setAmount(result.total != null ? String(result.total) : '');
     setCurrency(result.currency || 'USD');
     setUncertain(result.uncertainFields);
+    setServerStoragePath(result.storagePath || null);
+    setExtractionStatus(
+      result.status === 'ready' ||
+        result.status === 'needs_details' ||
+        result.status === 'failed' ||
+        result.status === 'blocked'
+        ? result.status
+        : 'needs_details',
+    );
     setPhase('review');
 
     // Suggest match by merchant/date/amount when possible
@@ -120,6 +138,23 @@ export function SnapReceiptDialog({
         throw new Error('Please enter a valid amount.');
       }
 
+      const receiptMeta = {
+        name: file?.name || 'receipt',
+        storagePath: serverStoragePath || '',
+        localPreviewUrl: previewUrl || undefined,
+        mimeType: file?.type,
+        sizeBytes: file?.size,
+        extractionStatus:
+          extractionStatus === 'none'
+            ? uncertain.length
+              ? ('needs_details' as const)
+              : ('ready' as const)
+            : extractionStatus === 'blocked'
+              ? ('needs_details' as const)
+              : extractionStatus,
+        extractionVersion: suggestion.ruleVersion,
+      };
+
       if (matchId) {
         const existing = records.find((r) => r.id === matchId);
         if (!existing) throw new Error('Selected match was not found.');
@@ -127,9 +162,12 @@ export function SnapReceiptDialog({
           {
             ...existing,
             notes: notes.trim() || existing.notes,
-            receipt: existing.receipt,
+            receipt: serverStoragePath
+              ? { ...receiptMeta, storagePath: serverStoragePath }
+              : existing.receipt,
           },
-          file,
+          // Re-upload only when the edge function did not already store the file.
+          serverStoragePath ? null : file,
         );
         showToast('Receipt attached to the matching expense.');
         onClose();
@@ -151,14 +189,9 @@ export function SnapReceiptDialog({
         suggestionReason: suggestion.reason,
         suggestionRuleId: suggestion.ruleId,
         suggestionRuleVersion: suggestion.ruleVersion,
-        receipt: {
-          name: file?.name || 'receipt',
-          storagePath: '',
-          extractionStatus: uncertain.length ? 'needs_details' : 'ready',
-          extractionVersion: suggestion.ruleVersion,
-        },
+        receipt: receiptMeta,
       });
-      await saveRecord(record, file);
+      await saveRecord(record, serverStoragePath ? null : file);
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save.');

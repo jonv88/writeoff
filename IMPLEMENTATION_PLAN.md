@@ -15,7 +15,7 @@
 | UI | React + TypeScript + Vite (exact template CSS/DOM) |
 | Native shells (later) | Capacitor |
 | Auth / DB / Storage | Supabase Auth + Postgres + private Storage |
-| OCR | Server endpoint via `VITE_OCR_ENDPOINT` adapter |
+| OCR | Supabase Edge Function `extract-receipt` + Mindee (server secrets) |
 | Banks (secondary) | Plaid Sandbox → production later |
 | Subscriptions (secondary) | Provider-agnostic entitlements; web MVP before store billing |
 
@@ -30,7 +30,7 @@
 Includes:
 - Profile-aware suggestion engine (`src/lib/writeoffEngine.ts`, rule pack `us-common` 2026.11.02)
 - Editable treatments (`treatmentSource`: suggestion / user / tax_pro); business-use % ≠ eligible %
-- Snap a receipt + OCR adapter (honest blocker when endpoint missing; manual review always available)
+- Snap a receipt + authenticated `extract-receipt` Edge Function (Mindee server-side; honest blocker when key missing; manual review always available)
 - Notes, filters (incl. suggestion status), summaries distinguishing total / possible write-offs / eligible %
 - CSV export with classifications
 - Local preview mode for independent demos without cloud credentials

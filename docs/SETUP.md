@@ -17,14 +17,16 @@ Auth, private receipt storage, and customer isolation are **not verified** until
 4. Auth email settings (confirm / reset redirect to your app origin).
 5. Isolation checklist: `docs/RLS_ISOLATION_TEST.md`
 
-Optional for automatic receipt extraction:
+Automatic receipt extraction uses the **`extract-receipt` Edge Function** (not browser OCR keys).
+
+Server secrets only (Dashboard → Edge Functions → Secrets):
 
 ```bash
-VITE_OCR_ENDPOINT=https://your-edge-or-api/extract
-# VITE_OCR_AUTH_TOKEN=   # optional bearer for your own endpoint
+OCR_PROVIDER=mindee
+MINDEE_API_KEY=…
 ```
 
-Without OCR env vars, **Snap a receipt** still works: users review the photo and enter details manually.
+See `docs/RECEIPT_OCR.md` and `docs/APPLY_MIGRATIONS.md`. Without `MINDEE_API_KEY`, Snap still works with manual field entry (honest `blocked` OCR status).
 
 ## Install & run
 ```bash
