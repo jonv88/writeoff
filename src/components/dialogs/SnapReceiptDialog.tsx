@@ -14,7 +14,7 @@ export function SnapReceiptDialog({
   open: boolean;
   onClose: () => void;
 }) {
-  const { profile, rules, records, saveRecord, showToast } = useWorkspace();
+  const { profile, rules, records, localPreview, saveRecord, showToast } = useWorkspace();
   const ref = useRef<HTMLDialogElement>(null);
   const [phase, setPhase] = useState<Phase>('pick');
   const [file, setFile] = useState<File | null>(null);
@@ -83,12 +83,24 @@ export function SnapReceiptDialog({
     setFile(f);
     const url = URL.createObjectURL(f);
     setPreviewUrl(url);
+    // Local / unconfigured: skip OCR call entirely — no fake extraction values.
+    if (localPreview || !isOcrConfigured()) {
+      setStatusMsg(
+        'Receipt attached for manual review. Automatic extraction is not available — enter the details below.',
+      );
+      setMerchant('');
+      setDate(today());
+      setAmount('');
+      setCurrency('USD');
+      setUncertain(['merchant', 'date', 'total']);
+      setServerStoragePath(null);
+      setExtractionStatus('blocked');
+      setPhase('review');
+      return;
+    }
+
     setPhase('reading');
-    setStatusMsg(
-      isOcrConfigured()
-        ? 'Uploading & reading receipt…'
-        : 'Cloud OCR unavailable — prepare manual review…',
-    );
+    setStatusMsg('Uploading & reading receipt…');
     const draftId = uid();
     const result = await extractReceipt(f, { expenseId: draftId });
     setStatusMsg(result.message);
@@ -218,6 +230,13 @@ export function SnapReceiptDialog({
           </button>
         </div>
         <p>Photograph or choose a receipt. No bank connection required.</p>
+        {(localPreview || !isOcrConfigured()) && (
+          <div className="notice" style={{ marginBottom: 12 }}>
+            Automatic text extraction is <strong>not available</strong> in this preview. Attach the
+            file, then enter merchant, date, and amount yourself. This is not a simulated OCR
+            success.
+          </div>
+        )}
 
         {phase === 'pick' && (
           <div className="importbox">
@@ -232,7 +251,7 @@ export function SnapReceiptDialog({
             </label>
             <p className="formhint">
               JPEG, PNG, WebP, HEIC or PDF · up to 3 MB. Cancel anytime — nothing is saved until you
-              confirm.
+              confirm. The file stays with the expense on this device in local preview.
             </p>
           </div>
         )}

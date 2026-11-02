@@ -1,6 +1,6 @@
 # Writeoff — Feature Status
 
-Last updated: 2026-11-02 (receipt backend)
+Last updated: 2026-11-02 (local preview for testers)
 
 Legend: **Done** · **Partial** · **Blocked** · **Not started**
 
@@ -36,20 +36,30 @@ Legend: **Done** · **Partial** · **Blocked** · **Not started**
 | Banks sandbox | Not started (Accounts honest pending) |
 | Subscriptions | Not started |
 
-## Blockers
+## Local preview (shipped — $0 / no cloud)
+
+| Capability | Status |
+| --- | --- |
+| `npm run dev` browser preview | Done — see `PREVIEW.md` |
+| Browser-local storage | Done |
+| Sample data + empty workspace + reset | Done (Setup controls) |
+| Core review loop without credentials | Done |
+| OCR | Not available locally — attach + manual entry only (no fake success) |
+| Banks / purchases | Clearly unavailable |
+
+## Blockers (cloud verification only)
 
 1. Dedicated **Writeoff** Supabase project ref + anon key (+ service role for deploy/scripts) via store — do not commit  
-2. Edge secrets: `MINDEE_API_KEY`, `OCR_PROVIDER=mindee`  
+2. Edge secrets: `MINDEE_API_KEY`, `OCR_PROVIDER=mindee` (paid OCR not activated on $0 budget)  
 3. Apply migrations + deploy `extract-receipt`  
 4. Docker / Xcode as before  
 
 ## Commands
 
 ```bash
+npm install && npm run dev           # Jonathan: start here
 npm run verify:template
 npm run test:suggestions
 npm run verify:receipt-flow          # dry run without keys
-npm run verify:receipt-flow -- --secrets=/path/from/store.env
-npm run migrations:print
 npm run build
 ```

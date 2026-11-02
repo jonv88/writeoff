@@ -25,7 +25,17 @@ const sourceLinks = (
 );
 
 export function SetupScreen({ onSetup }: { onSetup: () => void }) {
-  const { profile, rules, records, forgetRule, refresh, showToast } = useWorkspace();
+  const {
+    profile,
+    rules,
+    records,
+    localPreview,
+    forgetRule,
+    refresh,
+    showToast,
+    loadSampleData,
+    resetToEmpty,
+  } = useWorkspace();
   const { user, signOut } = useAuth();
   const legacy = useMemo(() => detectLegacyLocalStorage(), []);
   const [importing, setImporting] = useState(false);
@@ -162,20 +172,58 @@ export function SetupScreen({ onSetup }: { onSetup: () => void }) {
         <div className="panel">
           <h2>Your records, backed up.</h2>
           <p className="helper" style={{ margin: '13px 0' }}>
-            Export a CSV of your cloud records. Full backup-with-receipts download expands in a
-            later phase. Account deletion and retention details will ship with privacy flows.
+            {localPreview
+              ? 'Export a CSV of the expenses stored in this browser. Local preview is not cloud sync.'
+              : 'Export a CSV of your cloud records. Full backup-with-receipts download expands in a later phase.'}
           </p>
           <div className="inlinebuttons">
             <button type="button" className="btn secondary" onClick={() => void exportAllCsv()}>
               Export all CSV
             </button>
-            <button type="button" className="btn secondary" onClick={() => void signOut()}>
-              Sign out
-            </button>
+            {!localPreview && user && (
+              <button type="button" className="btn secondary" onClick={() => void signOut()}>
+                Sign out
+              </button>
+            )}
           </div>
         </div>
 
-        {(legacy.present || legacy.error) && (
+        {localPreview && (
+          <div className="panel">
+            <h2>Local preview controls</h2>
+            <p className="helper" style={{ margin: '12px 0' }}>
+              Sample data is clearly labeled synthetic (Demo Studio). Reset clears this device’s
+              preview workspace. Cloud auth, OCR extraction, banks, and purchases stay unavailable
+              here.
+            </p>
+            <div className="inlinebuttons">
+              <button type="button" className="btn" onClick={loadSampleData}>
+                Load sample expenses
+              </button>
+              <button
+                type="button"
+                className="btn secondary"
+                onClick={() => {
+                  if (
+                    window.confirm(
+                      'Clear all local preview expenses, setup, and preferences on this device?',
+                    )
+                  ) {
+                    resetToEmpty();
+                  }
+                }}
+              >
+                Reset to empty
+              </button>
+            </div>
+            <div className="notice" style={{ marginTop: 14 }}>
+              Automatic receipt OCR is not available in local preview — attach a file and enter
+              details manually. This is not a simulated OCR success.
+            </div>
+          </div>
+        )}
+
+        {(legacy.present || legacy.error) && !localPreview && (
           <div className="panel">
             <h2>Browser records found</h2>
             <p className="helper" style={{ margin: '12px 0' }}>

@@ -1,7 +1,6 @@
 /**
- * Explicit local preview workspace — not cloud sync.
- * Used only when the customer chooses "Local preview" without Supabase,
- * or when VITE_FORCE_LOCAL_PREVIEW=1 for demos.
+ * Browser-local preview workspace — not cloud sync.
+ * Used when the customer chooses Local preview (primary path without credentials).
  */
 import type { ExpenseRecord, MerchantRule, Profile, WorkspaceState } from './types';
 import { defaultProfile } from './types';
@@ -10,16 +9,26 @@ export const LOCAL_PREVIEW_KEY = 'writeoff.local.preview.v1';
 export const LOCAL_PREVIEW_FLAG = 'writeoff.local.preview.active';
 
 export function isLocalPreviewActive(): boolean {
-  if (typeof sessionStorage === 'undefined') return false;
-  return sessionStorage.getItem(LOCAL_PREVIEW_FLAG) === '1';
+  if (typeof localStorage === 'undefined') return false;
+  return localStorage.getItem(LOCAL_PREVIEW_FLAG) === '1';
 }
 
 export function enableLocalPreview(): void {
-  sessionStorage.setItem(LOCAL_PREVIEW_FLAG, '1');
+  localStorage.setItem(LOCAL_PREVIEW_FLAG, '1');
+  try {
+    sessionStorage.setItem(LOCAL_PREVIEW_FLAG, '1');
+  } catch {
+    /* ignore */
+  }
 }
 
 export function disableLocalPreview(): void {
-  sessionStorage.removeItem(LOCAL_PREVIEW_FLAG);
+  localStorage.removeItem(LOCAL_PREVIEW_FLAG);
+  try {
+    sessionStorage.removeItem(LOCAL_PREVIEW_FLAG);
+  } catch {
+    /* ignore */
+  }
 }
 
 export function loadLocalWorkspace(): WorkspaceState {
@@ -43,7 +52,15 @@ export function saveLocalWorkspace(state: WorkspaceState): void {
   localStorage.setItem(LOCAL_PREVIEW_KEY, JSON.stringify(state));
 }
 
-/** Synthetic fixtures for demo — not creator financial data. */
+export function clearLocalWorkspaceData(): void {
+  localStorage.removeItem(LOCAL_PREVIEW_KEY);
+}
+
+export function emptyLocalWorkspace(): WorkspaceState {
+  return { records: [], profile: defaultProfile(), rules: [] };
+}
+
+/** Synthetic fixtures for demo — not creator or personal financial data. */
 export function seedDemoFixtures(): WorkspaceState {
   const profile: Profile = {
     ...defaultProfile(),
@@ -106,6 +123,25 @@ export function seedDemoFixtures(): WorkspaceState {
       type: 'Unsorted',
       share: 0,
       entity: '',
+      notes: '',
+      percent: 0,
+      eligibilityChecked: false,
+      reviewed: false,
+      source: 'Manual expense',
+      account: '',
+      receipt: null,
+      treatmentSource: 'suggestion',
+    },
+    {
+      id: 'demo-staples',
+      merchant: 'Staples',
+      amount: 42.18,
+      currency: 'USD',
+      date: '2026-10-12',
+      category: 'Office & supplies',
+      type: 'Unsorted',
+      share: 0,
+      entity: 'Demo Studio',
       notes: '',
       percent: 0,
       eligibilityChecked: false,

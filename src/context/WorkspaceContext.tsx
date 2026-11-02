@@ -19,9 +19,11 @@ import {
   upsertExpense,
 } from '../lib/data';
 import {
+  emptyLocalWorkspace,
   isLocalPreviewActive,
   loadLocalWorkspace,
   saveLocalWorkspace,
+  seedDemoFixtures,
 } from '../lib/localWorkspace';
 import { suggestWriteOff } from '../lib/writeoffEngine';
 import { useAuth } from './AuthContext';
@@ -39,6 +41,8 @@ interface WorkspaceContextValue {
   removeRecord: (id: string) => Promise<void>;
   rememberRule: (rule: MerchantRule) => Promise<void>;
   forgetRule: (ruleId: string) => Promise<void>;
+  loadSampleData: () => void;
+  resetToEmpty: () => void;
   toast: string | null;
   toastUndo: (() => void) | null;
   showToast: (message: string, undo?: () => void) => void;
@@ -258,6 +262,19 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     [user, localPreview, persistLocal, profile, records, rules, showToast],
   );
 
+  const loadSampleData = useCallback(() => {
+    if (!localPreview) return;
+    const seeded = seedDemoFixtures();
+    persistLocal(seeded);
+    showToast('Sample expenses loaded (synthetic Demo Studio data).');
+  }, [localPreview, persistLocal, showToast]);
+
+  const resetToEmpty = useCallback(() => {
+    if (!localPreview) return;
+    persistLocal(emptyLocalWorkspace());
+    showToast('Workspace cleared. You’re starting empty on this device.');
+  }, [localPreview, persistLocal, showToast]);
+
   const value: WorkspaceContextValue = {
     loading,
     error,
@@ -271,6 +288,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     removeRecord,
     rememberRule,
     forgetRule,
+    loadSampleData,
+    resetToEmpty,
     toast,
     toastUndo,
     showToast,

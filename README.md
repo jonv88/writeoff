@@ -1,36 +1,38 @@
 # Writeoff
 
-Subscription web app (App Store / Play later) that organizes expenses and receipts, **suggests possible write-offs** from the customer’s circumstances, and keeps every suggestion easy to review or edit.
+Subscription product (web first) that organizes expenses and receipts, **suggests possible write-offs**, and keeps every suggestion easy to review or edit.
 
 The approved prototype in `reference-template/` is the locked visual baseline — do not redesign it.
 
-## Quick start
+## Try it now (no cloud)
+
 ```bash
-npm run verify:template
 npm install
-cp .env.example .env   # optional until you have a Writeoff Supabase project
 npm run dev
 ```
 
-Without cloud keys: **Local preview with sample expenses** exercises the central product loop on this device.
+Open **http://localhost:5173/** → **Open with sample expenses** or **Start empty workspace**.
 
+Full steps: **[PREVIEW.md](./PREVIEW.md)**
+
+## What works in local preview
+Expense CRUD · receipt file attach (manual details) · Business/Personal/Split · suggestions · business-use & eligible % · totals · search/filters · CSV · sample data / reset.
+
+**Not available:** cloud sync, automatic OCR, banks, purchases (labeled honestly — never faked).
+
+## Cloud / backend (optional later)
 ```bash
-npm run test:suggestions
-npm run verify:receipt-flow
-npm run build
-npm run reference:preview
+cp .env.example .env   # Writeoff project URL + anon only
+# apply supabase/migrations — see docs/APPLY_MIGRATIONS.md
+npm run dev
 ```
 
-Receipt OCR runs through the authenticated `extract-receipt` Edge Function (Mindee on the server). Never put OCR or service-role secrets in `VITE_*` — see [docs/RECEIPT_OCR.md](./docs/RECEIPT_OCR.md).
+Receipt OCR (when configured) uses the authenticated `extract-receipt` Edge Function — see [docs/RECEIPT_OCR.md](./docs/RECEIPT_OCR.md). Never put OCR or service-role secrets in `VITE_*`.
 
 ## Docs
-- [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) — consolidated increments A→D
-- [FEATURE_STATUS.md](./FEATURE_STATUS.md)
-- [DESIGN_PARITY.md](./DESIGN_PARITY.md)
-- [docs/SETUP.md](./docs/SETUP.md) — minimum backend config
-- [docs/APPLY_MIGRATIONS.md](./docs/APPLY_MIGRATIONS.md)
-- [docs/RECEIPT_OCR.md](./docs/RECEIPT_OCR.md)
-- [docs/LEGACY_MIGRATION.md](./docs/LEGACY_MIGRATION.md)
-
-## Rules
-Read `AGENTS.md` and `.cursor/rules/preserve-template.mdc`. Never commit secrets, creator financial data, or fake bank/subscription success states.
+- [PREVIEW.md](./PREVIEW.md) — local startup for Jonathan / testers  
+- [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md)  
+- [FEATURE_STATUS.md](./FEATURE_STATUS.md)  
+- [DESIGN_PARITY.md](./DESIGN_PARITY.md)  
+- [docs/SETUP.md](./docs/SETUP.md)  
+- [AGENTS.md](./AGENTS.md)

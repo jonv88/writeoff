@@ -1,6 +1,8 @@
 import { useState, type FormEvent } from 'react';
 import { useAuth } from '../context/AuthContext';
 import {
+  clearLocalWorkspaceData,
+  emptyLocalWorkspace,
   enableLocalPreview,
   saveLocalWorkspace,
   seedDemoFixtures,
@@ -18,10 +20,44 @@ export function AuthScreen({ onLocalPreview }: { onLocalPreview?: () => void }) 
 
   function startLocal(seed: boolean) {
     enableLocalPreview();
-    if (seed) saveLocalWorkspace(seedDemoFixtures());
+    if (seed) {
+      saveLocalWorkspace(seedDemoFixtures());
+    } else {
+      clearLocalWorkspaceData();
+      saveLocalWorkspace(emptyLocalWorkspace());
+    }
     window.dispatchEvent(new Event('writeoff-local-preview'));
     onLocalPreview?.();
   }
+
+  const localGate = (
+    <>
+      <div className="kicker">BROWSER PREVIEW · NO CLOUD REQUIRED</div>
+      <h1>Try Writeoff on this device.</h1>
+      <p>
+        Explore suggestions, review Business / Personal / Split, attach receipts, and export CSV.
+        Everything stays in this browser until a Writeoff cloud project is configured.
+      </p>
+      <div className="notice" style={{ marginTop: 16 }}>
+        <strong>Sample data</strong> is synthetic (Demo Studio) — not anyone’s real finances.{' '}
+        <strong>Empty workspace</strong> starts blank for your own test expenses. Reset anytime in
+        Setup.
+      </div>
+      <div className="dialogactions" style={{ justifyContent: 'flex-start', marginTop: 22 }}>
+        <button type="button" className="btn" onClick={() => startLocal(true)}>
+          Open with sample expenses
+        </button>
+        <button type="button" className="btn secondary" onClick={() => startLocal(false)}>
+          Start empty workspace
+        </button>
+      </div>
+      <p className="formhint" style={{ marginTop: 14 }}>
+        Receipt photos attach locally. Automatic OCR text extraction is <strong>not available</strong>{' '}
+        in this preview — enter merchant, date, and amount yourself. Bank linking and purchases are
+        unavailable.
+      </p>
+    </>
+  );
 
   if (!configured) {
     return (
@@ -31,34 +67,22 @@ export function AuthScreen({ onLocalPreview }: { onLocalPreview?: () => void }) 
             <span className="mark">w</span>
             writeoff<span style={{ color: '#a4b984' }}>.</span>
           </div>
-          <h1>Almost ready.</h1>
-          <p>
-            Cloud accounts need a dedicated Writeoff Supabase project. Add{' '}
-            <code>VITE_SUPABASE_URL</code> and <code>VITE_SUPABASE_ANON_KEY</code>, apply{' '}
-            <code>supabase/migrations/</code>, then restart.
-          </p>
-          <div className="notice" style={{ marginTop: 20 }}>
-            Existing projects under this account (Rhev / RHEV Development) were not reused. Create a
-            dedicated Writeoff project, or supply credentials for one you own. No secrets are
-            committed. Auth, storage, and isolation are <strong>not verified</strong> until that
-            backend is configured and tested.
-          </div>
-          <div className="dialogactions" style={{ justifyContent: 'flex-start', marginTop: 22 }}>
-            <button type="button" className="btn" onClick={() => startLocal(true)}>
-              Local preview with sample expenses
-            </button>
-            <button type="button" className="btn secondary" onClick={() => startLocal(false)}>
-              Empty local preview
-            </button>
-          </div>
-          <p className="formhint" style={{ marginTop: 14 }}>
-            Local preview stays on this device and is not cloud sync. Use it to exercise suggestions,
-            Snap a receipt (manual entry when OCR is unconfigured), filters and CSV export.
-          </p>
+          {localGate}
+          <details style={{ marginTop: 22 }}>
+            <summary className="helper" style={{ cursor: 'pointer' }}>
+              Cloud accounts (not configured)
+            </summary>
+            <p className="helper" style={{ marginTop: 10 }}>
+              Supabase Auth / Storage code is ready but gated. Add{' '}
+              <code>VITE_SUPABASE_URL</code> and <code>VITE_SUPABASE_ANON_KEY</code> for a dedicated
+              Writeoff project, apply migrations, then restart. Do not use unrelated projects. No
+              secrets are committed.
+            </p>
+          </details>
           <p className="helper" style={{ marginTop: 18 }}>
-            Reference preview (immutable template):{' '}
+            Locked visual template:{' '}
             <a href="/reference-preview/" target="_blank" rel="noreferrer">
-              open locked template
+              open reference
             </a>
           </p>
         </aside>
@@ -101,7 +125,7 @@ export function AuthScreen({ onLocalPreview }: { onLocalPreview?: () => void }) 
           {mode === 'reset' && 'Reset your password.'}
         </h1>
         <p>
-          {mode === 'sign-in' && 'Sign in to review expenses and keep receipts with your records.'}
+          {mode === 'sign-in' && 'Sign in to sync expenses across devices.'}
           {mode === 'sign-up' && 'A short setup after this. Your records stay yours.'}
           {mode === 'reset' && 'We’ll email a secure link when the address is registered.'}
         </p>
@@ -161,8 +185,12 @@ export function AuthScreen({ onLocalPreview }: { onLocalPreview?: () => void }) 
               <button type="button" className="linkbtn" onClick={() => setMode('reset')}>
                 Forgot password?
               </button>
+              <hr style={{ border: 0, borderTop: '1px solid var(--line)', margin: '8px 0' }} />
               <button type="button" className="linkbtn" onClick={() => startLocal(true)}>
-                Or try local preview (this device only)
+                Or open local preview with sample expenses
+              </button>
+              <button type="button" className="linkbtn" onClick={() => startLocal(false)}>
+                Or start an empty local workspace
               </button>
             </>
           )}
