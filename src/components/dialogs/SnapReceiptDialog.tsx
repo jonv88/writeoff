@@ -1,11 +1,15 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { categoryFor, today, uid } from '../../lib/core';
-import { extractReceipt, isBrowserOcrAvailable } from '../../lib/ocr/adapter';
+import { categoryFor, uid } from '../../lib/core';
+import { extractReceipt } from '../../lib/ocr/adapter';
+import { formatOcrAmount } from '../../lib/ocr/browserOcr';
 import { suggestWriteOff } from '../../lib/writeoffEngine';
 import { emptyExpense } from '../../lib/types';
 import { useWorkspace } from '../../context/WorkspaceContext';
 
 type Phase = 'pick' | 'reading' | 'review';
+type PipelineState = 'idle' | 'photo_attached' | 'reading' | 'details_filled' | 'needs_manual';
+
+type FieldKey = 'merchant' | 'amount' | 'date';
 
 export function SnapReceiptDialog({
   open,
@@ -16,13 +20,23 @@ export function SnapReceiptDialog({
 }) {
   const { profile, rules, records, localPreview, saveRecord, showToast } = useWorkspace();
   const ref = useRef<HTMLDialogElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  /** Fields the user typed into — OCR must not overwrite these. */
+  const userTouched = useRef<Record<FieldKey, boolean>>({
+    merchant: false,
+    amount: false,
+    date: false,
+  });
+
   const [phase, setPhase] = useState<Phase>('pick');
+  const [pipeline, setPipeline] = useState<PipelineState>('idle');
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [statusMsg, setStatusMsg] = useState('');
   const [merchant, setMerchant] = useState('');
   const [amount, setAmount] = useState('');
-  const [date, setDate] = useState(today());
+  const [date, setDate] = useState('');
   const [currency, setCurrency] = useState('USD');
   const [notes, setNotes] = useState('');
   const [uncertain, setUncertain] = useState<string[]>([]);
@@ -35,18 +49,20 @@ export function SnapReceiptDialog({
     'none' | 'ready' | 'needs_details' | 'failed' | 'blocked'
   >('none');
   const [extractionVersion, setExtractionVersion] = useState('');
+  const [captureHint, setCaptureHint] = useState('');
 
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
     if (open && !el.open) {
       setPhase('pick');
+      setPipeline('idle');
       setFile(null);
       setPreviewUrl(null);
       setStatusMsg('');
       setMerchant('');
       setAmount('');
-      setDate(today());
+      setDate('');
       setCurrency('USD');
       setNotes('');
       setUncertain([]);
@@ -56,6 +72,10 @@ export function SnapReceiptDialog({
       setOcrProvider(null);
       setExtractionStatus('none');
       setExtractionVersion('');
+      setCaptureHint('');
+      userTouched.current = { merchant: false, amount: false, date: false };
+      if (cameraInputRef.current) cameraInputRef.current.value = '';
+      if (fileInputRef.current) fileInputRef.current.value = '';
       el.showModal();
     } else if (!open && el.open) {
       el.close();
@@ -68,49 +88,107 @@ export function SnapReceiptDialog({
     };
   }, [previewUrl]);
 
-  async function acceptFile(f: File | undefined) {
-    if (!f) return;
-    if (f.size > 3 * 1024 * 1024) {
-      setError('Choose a receipt smaller than 3 MB.');
-      return;
-    }
-    if (
-      !(
-        /^image\/(jpeg|png|webp|gif|heic|heif)$/.test(f.type) ||
-        f.type === 'application/pdf'
-      )
-    ) {
-      setError('Choose a photo or PDF receipt.');
-      return;
-    }
-    setError('');
-    setFile(f);
-    const url = URL.createObjectURL(f);
-    setPreviewUrl(url);
+  function markTouched(key: FieldKey) {
+    userTouched.current[key] = true;
+  }
 
-    setPhase('reading');
-    setStatusMsg(
-      localPreview || isBrowserOcrAvailable()
-        ? 'Loading on-device OCR…'
-        : 'Uploading & reading receipt…',
+  function applyOcrToForm(result: {
+    merchant: string | null;
+    date: string | null;
+    total: number | null;
+    currency: string | null;
+    uncertainFields: string[];
+    status: string;
+    message: string;
+  }) {
+    // Only fill untouched fields. Missing OCR values stay blank — never invent.
+    if (!userTouched.current.merchant) {
+      setMerchant(result.merchant?.trim() || '');
+    }
+    if (!userTouched.current.date) {
+      setDate(result.date || '');
+    }
+    if (!userTouched.current.amount) {
+      setAmount(result.total != null ? formatOcrAmount(result.total) : '');
+    }
+    if (result.currency) setCurrency(result.currency);
+
+    const uncertainNext = [...result.uncertainFields];
+    if (!userTouched.current.merchant && !result.merchant && !uncertainNext.includes('merchant')) {
+      uncertainNext.push('merchant');
+    }
+    if (!userTouched.current.date && !result.date && !uncertainNext.includes('date')) {
+      uncertainNext.push('date');
+    }
+    if (!userTouched.current.amount && result.total == null && !uncertainNext.includes('total')) {
+      uncertainNext.push('total');
+    }
+    setUncertain([...new Set(uncertainNext)]);
+
+    const filledAny = Boolean(result.merchant || result.date || result.total != null);
+    if (filledAny && result.status !== 'failed') {
+      setPipeline('details_filled');
+      setStatusMsg(
+        result.message.startsWith('Details filled')
+          ? result.message
+          : `Details filled in. ${result.message}`,
+      );
+    } else {
+      setPipeline('needs_manual');
+      setStatusMsg(result.message);
+    }
+  }
+
+  async function acceptFile(f: File | undefined, source: 'camera' | 'file') {
+    if (!f) return;
+    setError('');
+    setCaptureHint(
+      source === 'camera'
+        ? 'Take photo uses the device camera when the browser supports it (capture=environment). On many desktops the system file picker opens instead.'
+        : 'Choose file opens the photo library / file picker (no forced camera).',
     );
 
-    const draftId = uid();
-    const result = await extractReceipt(f, {
-      expenseId: draftId,
-      preferBrowser: localPreview,
-      onProgress: (msg) => setStatusMsg(msg),
+    setPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return URL.createObjectURL(f);
     });
 
-    setStatusMsg(result.message);
-    setMerchant(result.merchant || '');
-    setDate(result.date || today());
-    setAmount(result.total != null ? String(result.total) : '');
-    setCurrency(result.currency || 'USD');
-    setUncertain(result.uncertainFields);
-    setServerStoragePath(result.storagePath || null);
+    setPhase('reading');
+    setPipeline('photo_attached');
+    setStatusMsg('Photo attached');
+    setFile(f);
+
+    const draftId = uid();
+    setPipeline('reading');
+    setStatusMsg('Reading receipt…');
+
+    const bundle = await extractReceipt(f, {
+      expenseId: draftId,
+      preferBrowser: true,
+      onProgress: (msg) => {
+        if (/^Photo attached/i.test(msg)) {
+          setPipeline('photo_attached');
+        } else if (/Reading receipt/i.test(msg) || /Loading on-device|preparing/i.test(msg)) {
+          setPipeline('reading');
+        }
+        setStatusMsg(msg);
+      },
+    });
+
+    const { extraction: result, attachFile, previewUrl: nextPreview } = bundle;
+
+    setPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      if (nextPreview) return nextPreview;
+      if (attachFile) return URL.createObjectURL(attachFile);
+      return null;
+    });
+
+    // Keep receipt attached even when OCR fails / needs manual entry
+    setFile(attachFile || f);
     setOcrProvider(result.provider || null);
     setExtractionVersion(result.version || '');
+    setServerStoragePath(result.storagePath || null);
     setExtractionStatus(
       result.status === 'ready' ||
         result.status === 'needs_details' ||
@@ -119,6 +197,8 @@ export function SnapReceiptDialog({
         ? result.status
         : 'needs_details',
     );
+
+    applyOcrToForm(result);
     setPhase('review');
 
     if (result.merchant && result.date && result.total != null) {
@@ -154,6 +234,7 @@ export function SnapReceiptDialog({
     setBusy(true);
     try {
       if (!merchant.trim()) throw new Error('Please enter a merchant.');
+      if (!date) throw new Error('Please enter the transaction date.');
       const amountNum = Number(amount);
       if (!Number.isFinite(amountNum) || amountNum < 0.01) {
         throw new Error('Please enter a valid amount.');
@@ -183,9 +264,10 @@ export function SnapReceiptDialog({
           {
             ...existing,
             notes: notes.trim() || existing.notes,
-            receipt: serverStoragePath
-              ? { ...receiptMeta, storagePath: serverStoragePath }
-              : existing.receipt,
+            receipt: {
+              ...receiptMeta,
+              storagePath: serverStoragePath || existing.receipt?.storagePath || '',
+            },
           },
           serverStoragePath ? null : file,
         );
@@ -205,6 +287,9 @@ export function SnapReceiptDialog({
         notes: notes.trim(),
         source: 'Receipt capture',
         treatmentSource: 'suggestion',
+        // Eligible % is never set from OCR — stays 0 until the user reviews.
+        percent: 0,
+        eligibilityChecked: false,
         suggestedStatus: suggestion.status,
         suggestionReason: suggestion.reason,
         suggestionRuleId: suggestion.ruleId,
@@ -220,7 +305,18 @@ export function SnapReceiptDialog({
     }
   }
 
-  const browserMode = localPreview || ocrProvider === 'tesseract.js';
+  const browserMode = localPreview || ocrProvider === 'tesseract.js' || phase !== 'pick';
+
+  const pipelineLabel =
+    pipeline === 'photo_attached'
+      ? 'Photo attached'
+      : pipeline === 'reading'
+        ? 'Reading receipt'
+        : pipeline === 'details_filled'
+          ? 'Details filled in'
+          : pipeline === 'needs_manual'
+            ? 'Finish manually'
+            : null;
 
   return (
     <dialog
@@ -243,26 +339,61 @@ export function SnapReceiptDialog({
         {browserMode && (
           <div className="notice" style={{ marginBottom: 12 }}>
             <strong>On-device OCR</strong> (Tesseract.js) runs in this browser — no Supabase or paid
-            API keys. Accuracy varies; merchant, date, and amount stay editable. HEIC and PDF are
-            limited — prefer JPEG/PNG. English text works best; large photos can take a while on
-            phones.
+            API keys. Extracted merchant, date, and amount stay editable. Eligible write-off % is
+            separate and is never set from the scan.
           </div>
         )}
 
         {phase === 'pick' && (
           <div className="importbox">
-            <label>
-              Camera or photo library
-              <input
-                type="file"
-                accept="image/*,application/pdf"
-                capture="environment"
-                onChange={(e) => void acceptFile(e.target.files?.[0])}
-              />
-            </label>
+            <div className="inlinebuttons" style={{ marginBottom: 12 }}>
+              <button
+                type="button"
+                className="btn"
+                onClick={() => cameraInputRef.current?.click()}
+              >
+                Take photo
+              </button>
+              <button
+                type="button"
+                className="btn secondary"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                Choose file
+              </button>
+            </div>
+            {/* capture=environment: requests rear camera on supporting mobile browsers.
+                Desktop Chrome/Firefox typically fall back to the file picker — that is expected. */}
+            <input
+              ref={cameraInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              style={{ position: 'absolute', width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
+              aria-label="Take photo with camera"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                e.target.value = '';
+                void acceptFile(f, 'camera');
+              }}
+            />
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*,application/pdf"
+              style={{ position: 'absolute', width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
+              aria-label="Choose receipt file"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                e.target.value = '';
+                void acceptFile(f, 'file');
+              }}
+            />
             <p className="formhint">
-              JPEG, PNG, or WebP preferred · up to 3 MB. Cancel anytime — nothing is saved until you
-              confirm.
+              <strong>Take photo</strong> asks for the rear camera when the browser supports it
+              (iPhone Safari usually opens Camera). <strong>Choose file</strong> opens your library
+              or files. JPEG/PNG preferred · large photos are resized for OCR. Cancel anytime —
+              nothing is saved until you confirm.
               {localPreview
                 ? ' The file and extracted fields stay in this browser only — they do not sync across devices.'
                 : ''}
@@ -270,33 +401,58 @@ export function SnapReceiptDialog({
           </div>
         )}
 
-        {phase === 'reading' && <div className="notice">{statusMsg || 'Working…'}</div>}
+        {phase === 'reading' && (
+          <div className="notice">
+            {pipelineLabel && (
+              <div className="formhint" style={{ marginBottom: 6 }}>
+                <strong>{pipelineLabel}</strong>
+              </div>
+            )}
+            {statusMsg || 'Working…'}
+            {previewUrl && (
+              <div style={{ marginTop: 10 }}>
+                <img
+                  src={previewUrl}
+                  alt="Receipt preview"
+                  style={{ maxWidth: '100%', maxHeight: 140, borderRadius: 8 }}
+                />
+              </div>
+            )}
+          </div>
+        )}
 
         {phase === 'review' && (
           <>
+            {pipelineLabel && (
+              <div className="notice" style={{ marginBottom: 8 }}>
+                <strong>{pipelineLabel}</strong>
+                {file ? ` · ${file.name}` : ''}
+              </div>
+            )}
             {previewUrl && (
               <div className="notice" style={{ marginBottom: 12 }}>
                 <div className="formhint" style={{ marginBottom: 8 }}>
-                  Preview
+                  Receipt attached
                 </div>
-                {file?.type.startsWith('image/') ? (
+                {file?.type.startsWith('image/') || /\.jpe?g$/i.test(file?.name || '') ? (
                   <img
                     src={previewUrl}
                     alt="Receipt preview"
                     style={{ maxWidth: '100%', maxHeight: 180, borderRadius: 8 }}
                   />
                 ) : (
-                  <span>{file?.name}</span>
+                  <span>{file?.name || 'Receipt file'}</span>
                 )}
               </div>
             )}
             <div className={`notice ${uncertain.length ? 'warningnote' : ''}`}>{statusMsg}</div>
             {ocrProvider === 'tesseract.js' && (
               <p className="formhint">
-                Provider: browser Tesseract.js (free preview). Not a cloud OCR demo — real on-device
-                text recognition with honest accuracy limits.
+                Provider: browser Tesseract.js (free preview). Real on-device recognition — not a fake
+                OCR demo. Eligible write-off % is not filled from the scan.
               </p>
             )}
+            {captureHint && <p className="formhint">{captureHint}</p>}
             {uncertain.length > 0 && (
               <p className="formhint">Check highlighted fields: {uncertain.join(', ')}.</p>
             )}
@@ -307,7 +463,10 @@ export function SnapReceiptDialog({
                   required
                   maxLength={100}
                   value={merchant}
-                  onChange={(e) => setMerchant(e.target.value)}
+                  onChange={(e) => {
+                    markTouched('merchant');
+                    setMerchant(e.target.value);
+                  }}
                   style={uncertain.includes('merchant') ? { borderColor: '#c4a35a' } : undefined}
                 />
               </label>
@@ -319,7 +478,10 @@ export function SnapReceiptDialog({
                   step={0.01}
                   required
                   value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
+                  onChange={(e) => {
+                    markTouched('amount');
+                    setAmount(e.target.value);
+                  }}
                   style={uncertain.includes('total') ? { borderColor: '#c4a35a' } : undefined}
                 />
               </label>
@@ -331,7 +493,10 @@ export function SnapReceiptDialog({
                   type="date"
                   required
                   value={date}
-                  onChange={(e) => setDate(e.target.value)}
+                  onChange={(e) => {
+                    markTouched('date');
+                    setDate(e.target.value);
+                  }}
                   style={uncertain.includes('date') ? { borderColor: '#c4a35a' } : undefined}
                 />
               </label>
@@ -360,6 +525,7 @@ export function SnapReceiptDialog({
               {suggestion.reason}
               <div className="ruleline">
                 {suggestion.category} · {suggestion.ruleId} {suggestion.ruleVersion}
+                {' · '}Eligible % is set when you review — not from OCR
               </div>
             </div>
             {records.filter((r) => !r.receipt).length > 0 && (
@@ -378,6 +544,20 @@ export function SnapReceiptDialog({
                 </select>
               </label>
             )}
+            <div className="inlinebuttons">
+              <button
+                type="button"
+                className="btn secondary"
+                onClick={() => {
+                  setPhase('pick');
+                  setPipeline('idle');
+                  setStatusMsg('');
+                  setCaptureHint('');
+                }}
+              >
+                Replace photo
+              </button>
+            </div>
           </>
         )}
 

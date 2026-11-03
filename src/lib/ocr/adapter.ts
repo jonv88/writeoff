@@ -9,7 +9,7 @@
 
 import { getSupabase } from '../supabase';
 import { config, isSupabaseConfigured } from '../config';
-import { extractWithBrowserOcr } from './browserOcr';
+import { extractWithBrowserOcr, type BrowserOcrBundle } from './browserOcr';
 
 export interface OcrExtraction {
   merchant: string | null;
@@ -31,6 +31,13 @@ export interface OcrExtraction {
   sizeBytes?: number;
   provider?: string;
 }
+
+export type ReceiptExtractBundle = {
+  extraction: OcrExtraction;
+  /** Prepared/attachable file for the expense (may differ from the raw pick). */
+  attachFile: File | null;
+  previewUrl: string | null;
+};
 
 const VERSION = 'ocr-client-2026.11.02';
 
@@ -69,24 +76,23 @@ export function isBrowserOcrAvailable(): boolean {
 export async function extractReceipt(
   file: File,
   options?: { expenseId?: string; onProgress?: (msg: string) => void; preferBrowser?: boolean },
-): Promise<OcrExtraction> {
+): Promise<ReceiptExtractBundle> {
   // Local preview / no Supabase: free on-device OCR only.
   if (options?.preferBrowser || !isSupabaseConfigured()) {
-    return extractWithBrowserOcr(file, options?.onProgress);
+    return toBundle(await extractWithBrowserOcr(file, options?.onProgress));
   }
 
   const sb = getSupabase();
   if (!sb) {
-    return extractWithBrowserOcr(file, options?.onProgress);
+    return toBundle(await extractWithBrowserOcr(file, options?.onProgress));
   }
 
   const {
     data: { session },
   } = await sb.auth.getSession();
   if (!session?.access_token) {
-    // Signed-out but cloud configured: still offer browser OCR rather than blocking.
     options?.onProgress?.('Using on-device OCR (sign in for cloud extraction)…');
-    return extractWithBrowserOcr(file, options?.onProgress);
+    return toBundle(await extractWithBrowserOcr(file, options?.onProgress));
   }
 
   const body = new FormData();
@@ -112,23 +118,43 @@ export async function extractReceipt(
 
     if (!res.ok) {
       return {
-        ...blocked(
-          payload.error ||
-            payload.message ||
-            `Reading the receipt failed (${res.status}). You can still enter details manually.`,
-        ),
-        status: res.status === 401 || res.status === 403 ? 'blocked' : 'failed',
-        version: payload.version || VERSION,
+        extraction: {
+          ...blocked(
+            payload.error ||
+              payload.message ||
+              `Reading the receipt failed (${res.status}). You can still enter details manually.`,
+          ),
+          status: res.status === 401 || res.status === 403 ? 'blocked' : 'failed',
+          version: payload.version || VERSION,
+        },
+        attachFile: file,
+        previewUrl: URL.createObjectURL(file),
       };
     }
 
-    return normalize(payload);
+    return {
+      extraction: normalize(payload),
+      attachFile: file,
+      previewUrl: URL.createObjectURL(file),
+    };
   } catch {
     return {
-      ...blocked('Could not reach the extraction service. Enter details manually and retry later.'),
-      status: 'failed',
+      extraction: {
+        ...blocked('Could not reach the extraction service. Enter details manually and retry later.'),
+        status: 'failed',
+      },
+      attachFile: file,
+      previewUrl: URL.createObjectURL(file),
     };
   }
+}
+
+function toBundle(bundle: BrowserOcrBundle): ReceiptExtractBundle {
+  return {
+    extraction: bundle.extraction,
+    attachFile: bundle.attachFile,
+    previewUrl: bundle.previewUrl,
+  };
 }
 
 function normalize(data: Partial<OcrExtraction>): OcrExtraction {

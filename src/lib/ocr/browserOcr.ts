@@ -4,8 +4,9 @@
  * Accuracy varies — fields remain editable after extraction.
  */
 import type { OcrExtraction } from './adapter';
+import { prepareReceiptPhoto } from './photoPrep';
 
-const VERSION = 'browser-tesseract-2026.11.02';
+const VERSION = 'browser-tesseract-2026.11.03';
 
 function base(
   partial: Partial<OcrExtraction> & Pick<OcrExtraction, 'status' | 'message'>,
@@ -38,6 +39,13 @@ export function parseDateFromText(text: string): string | null {
     const [, m, d, y] = us;
     return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
   }
+  // Compact US: 10/21/26
+  const usShort = text.match(/\b(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2})\b/);
+  if (usShort) {
+    const [, m, d, yy] = usShort;
+    const y = Number(yy) >= 70 ? `19${yy}` : `20${yy}`;
+    return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+  }
   return null;
 }
 
@@ -46,7 +54,7 @@ export function parseTotalFromText(text: string): { total: number | null; curren
   const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   const moneyRe = /(?:USD\s*)?\$?\s*(\d{1,6}(?:[.,]\d{2}))\b/gi;
   const labeled =
-    /(?:total|amount\s*due|balance|grand\s*total|visa|mastercard|paid)\D{0,20}(?:USD\s*)?\$?\s*(\d{1,6}(?:[.,]\d{2}))/i;
+    /(?:total|amount\s*due|balance|grand\s*total|visa|mastercard|paid)\D{0,24}(?:USD\s*)?\$?\s*(\d{1,6}(?:[.,]\d{2}))/i;
 
   for (const line of lines) {
     const m = line.match(labeled);
@@ -83,6 +91,10 @@ export function parseMerchantFromText(text: string): string | null {
   return null;
 }
 
+export function formatOcrAmount(total: number): string {
+  return total.toFixed(2);
+}
+
 export function parseReceiptText(text: string, confidencePct: number): OcrExtraction {
   const merchant = parseMerchantFromText(text);
   const date = parseDateFromText(text);
@@ -103,7 +115,7 @@ export function parseReceiptText(text: string, confidencePct: number): OcrExtrac
     return base({
       status: 'needs_details',
       message:
-        'Browser OCR could not read usable fields from this image. Enter merchant, date, and amount manually — fields stay editable.',
+        'Browser OCR could not read usable fields from this image. Enter merchant, date, and amount manually — fields stay editable. Receipt stays attached.',
       confidence: confidencePct / 100,
       rawTextPreview: preview || undefined,
       uncertainFields: ['merchant', 'date', 'total'],
@@ -120,70 +132,77 @@ export function parseReceiptText(text: string, confidencePct: number): OcrExtrac
     uncertainFields: unique,
     status: unique.length ? 'needs_details' : 'ready',
     message: unique.length
-      ? 'Browser OCR filled what it could — please check highlighted fields. Accuracy varies by photo quality.'
-      : 'Browser OCR finished. Please confirm the fields before saving.',
+      ? 'Details filled in where possible — please check highlighted fields. Accuracy varies by photo quality.'
+      : 'Details filled in. Please confirm the fields before saving.',
   });
 }
 
-function isHeic(file: File): boolean {
-  return (
-    /image\/hei[cf]/i.test(file.type) ||
-    /\.hei[cf]$/i.test(file.name)
-  );
-}
+export type BrowserOcrBundle = {
+  extraction: OcrExtraction;
+  /** File to attach to the expense (prepared JPEG when possible). */
+  attachFile: File | null;
+  previewUrl: string | null;
+};
 
 /**
- * Run Tesseract.js in the browser. Returns honest needs_details/failed states — never invents values.
+ * Prepare photo then run Tesseract.js. Never invents field values.
+ * On failure, still returns attachFile/preview when available so the draft keeps the receipt.
  */
 export async function extractWithBrowserOcr(
   file: File,
   onProgress?: (msg: string) => void,
-): Promise<OcrExtraction> {
-  if (isHeic(file)) {
-    return base({
-      status: 'needs_details',
-      message:
-        'HEIC/HEIF photos are not converted in this free browser preview. Use a JPEG/PNG (or iPhone “Most Compatible”), or enter details manually.',
-      uncertainFields: ['merchant', 'date', 'total'],
-    });
+): Promise<BrowserOcrBundle> {
+  const prepared = await prepareReceiptPhoto(file, onProgress);
+
+  if (!prepared.ok) {
+    return {
+      extraction: base({
+        status: 'needs_details',
+        message: prepared.message,
+        uncertainFields: ['merchant', 'date', 'total'],
+      }),
+      attachFile: prepared.attachFile,
+      previewUrl: prepared.previewUrl,
+    };
   }
 
-  if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) {
-    return base({
-      status: 'needs_details',
-      message:
-        'PDF OCR is limited in this free browser preview. Prefer a photo (JPEG/PNG), or enter details manually.',
-      uncertainFields: ['merchant', 'date', 'total'],
-    });
-  }
+  onProgress?.('Photo attached');
+  onProgress?.('Reading receipt…');
 
-  if (!file.type.startsWith('image/')) {
-    return base({
-      status: 'needs_details',
-      message: 'Choose a receipt photo (JPEG/PNG/WebP) for browser OCR, or enter details manually.',
-    });
-  }
-
-  onProgress?.('Loading on-device OCR…');
   try {
     const { createWorker } = await import('tesseract.js');
     const worker = await createWorker('eng', 1, {
       logger: (m) => {
         if (m.status === 'recognizing text' && typeof m.progress === 'number') {
           onProgress?.(`Reading receipt… ${Math.round(m.progress * 100)}%`);
+        } else if (m.status === 'loading language traineddata') {
+          onProgress?.('Reading receipt… loading language data');
         }
       },
     });
-    onProgress?.('Reading receipt…');
     const {
       data: { text, confidence },
-    } = await worker.recognize(file);
+    } = await worker.recognize(prepared.ocrFile);
     await worker.terminate();
-    return parseReceiptText(text || '', Number(confidence) || 0);
+    const extraction = parseReceiptText(text || '', Number(confidence) || 0);
+    if (prepared.note && extraction.status === 'ready') {
+      extraction.message = `Details filled in. ${prepared.note} Please confirm before saving.`;
+    } else if (prepared.note && !extraction.message.includes('Photo')) {
+      extraction.message = `${extraction.message} (${prepared.note})`;
+    }
+    return {
+      extraction,
+      attachFile: prepared.attachFile,
+      previewUrl: prepared.previewUrl,
+    };
   } catch (e) {
-    return base({
-      status: 'failed',
-      message: `Browser OCR failed (${e instanceof Error ? e.message : 'unknown error'}). Enter details manually.`,
-    });
+    return {
+      extraction: base({
+        status: 'failed',
+        message: `Browser OCR failed (${e instanceof Error ? e.message : 'unknown error'}). Receipt stays attached — enter details manually.`,
+      }),
+      attachFile: prepared.attachFile,
+      previewUrl: prepared.previewUrl,
+    };
   }
 }
