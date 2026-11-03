@@ -20,23 +20,28 @@ Stable alias: https://writeoff-preview-jonathan-villanueva8.vercel.app
 
 ## Receipt OCR (on-device)
 
-- Uses **Tesseract.js** (WASM) in the browser — real text recognition, not a fake success demo.
-- Merchant, date, and total are filled when possible and **always stay editable**.
+- **Snap a receipt** has two actions: **Take photo** (`capture=environment` rear camera when supported) and **Choose file** (library / picker, no forced camera).
+- Photos are prepared in-browser (decode, EXIF-aware orientation when the engine supports it, resize for OCR). Receipt stays attached if OCR fails.
+- Uses **Tesseract.js** (WASM) — real text recognition, not a fake success demo.
+- Pipeline states: **Photo attached** → **Reading receipt** → **Details filled in** (or finish manually).
+- Merchant, date, and total are auto-filled when found and **always stay editable**. User-typed values are not overwritten. Missing fields stay blank. Eligible write-off % is never set from OCR.
 - Honest limits:
   - **Accuracy** varies with photo quality, angle, glare, and fonts.
-  - **HEIC/HEIF** (common iPhone default): not converted here — use JPEG/PNG, or iPhone **Settings → Camera → Formats → Most Compatible**.
-  - **PDF**: limited; prefer a photo.
-  - **Language**: English (`eng`) trained data; other languages may fail.
-  - **Speed**: first run downloads worker/language data from a CDN; phones can take longer than desktop.
-  - If OCR can’t read fields, the UI says so and you enter them manually.
+  - **HEIC/HEIF**: decode attempted; if the browser can’t decode, clear message + finish manually with receipt attached. Prefer JPEG/PNG or iPhone **Most Compatible**.
+  - **PDF**: unscannable here — attach and enter details manually.
+  - **Language**: English (`eng`); other languages may fail.
+  - **Speed**: first run downloads worker/language data from a CDN; phones can take longer.
+  - **Desktop Take photo**: many desktop browsers open a file picker instead of a camera — expected; use Choose file or a phone for real capture.
 
 ## iPhone notes
 
 - Prefer **Safari** or Chrome; add to Home Screen optional.
-- For camera snaps: allow camera/photos; shoot in good light; crop tightly around the receipt.
-- If the Photos app gives HEIC, convert/export as JPEG, or switch Camera to Most Compatible before testing OCR.
+- Use **Take photo** for the rear camera, or **Choose file** for an existing shot.
+- Allow camera/photos; shoot in good light; crop tightly around the receipt.
+- If Photos gives HEIC, export as JPEG, or switch Camera to Most Compatible before testing OCR.
 - Expect OCR to be slower than on Mac; leave the tab open while “Reading receipt…” progresses.
 - Data on the phone **will not appear** on your Mac (and vice versa) — browser-local only.
+- Physical iPhone camera open was not verified in the agent environment (viewport ≠ capture); please confirm Take photo on device Safari.
 
 ## What remains unavailable
 
@@ -63,7 +68,8 @@ Same local-storage + browser OCR behavior as the hosted preview.
 
 ## Screenshots
 
-See `/cursor/stores/bc-7967a11b-7ff7-4ed3-91a2-8c7564cbede4/media/hosted-preview/`.
+- Hosted preview: `/cursor/stores/bc-7967a11b-7ff7-4ed3-91a2-8c7564cbede4/media/hosted-preview/`
+- Receipt scan autofill: `/cursor/stores/bc-7967a11b-7ff7-4ed3-91a2-8c7564cbede4/media/receipt-scan-fix/`
 
 ## Reference template
 
