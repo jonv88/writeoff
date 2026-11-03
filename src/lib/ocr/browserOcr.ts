@@ -6,7 +6,9 @@
 import type { OcrExtraction } from './adapter';
 import { prepareReceiptPhoto } from './photoPrep';
 
-const VERSION = 'browser-tesseract-2026.11.03';
+const VERSION = 'browser-tesseract-2026.11.03b';
+
+const CUSTOMER_REVIEW_MSG = 'Review the details before saving.';
 
 function base(
   partial: Partial<OcrExtraction> & Pick<OcrExtraction, 'status' | 'message'>,
@@ -27,8 +29,45 @@ function base(
   };
 }
 
-/** Pull likely dates (ISO or US) from OCR text. */
+const MONTHS: Record<string, string> = {
+  jan: '01',
+  january: '01',
+  feb: '02',
+  february: '02',
+  mar: '03',
+  march: '03',
+  apr: '04',
+  april: '04',
+  may: '05',
+  jun: '06',
+  june: '06',
+  jul: '07',
+  july: '07',
+  aug: '08',
+  august: '08',
+  sep: '09',
+  sept: '09',
+  september: '09',
+  oct: '10',
+  october: '10',
+  nov: '11',
+  november: '11',
+  dec: '12',
+  december: '12',
+};
+
+/** Pull likely dates (ISO, US numeric, or Month D, YYYY). */
 export function parseDateFromText(text: string): string | null {
+  const named = text.match(
+    /\b(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+(\d{1,2}),?\s+(20\d{2})\b/i,
+  );
+  if (named) {
+    const mon = MONTHS[named[1].toLowerCase()];
+    if (mon) {
+      return `${named[3]}-${mon}-${named[2].padStart(2, '0')}`;
+    }
+  }
+
   const iso = text.match(/\b(20\d{2})[\/\-.](\d{1,2})[\/\-.](\d{1,2})\b/);
   if (iso) {
     const [, y, m, d] = iso;
@@ -39,7 +78,6 @@ export function parseDateFromText(text: string): string | null {
     const [, m, d, y] = us;
     return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
   }
-  // Compact US: 10/21/26
   const usShort = text.match(/\b(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2})\b/);
   if (usShort) {
     const [, m, d, yy] = usShort;
@@ -77,17 +115,150 @@ export function parseTotalFromText(text: string): { total: number | null; curren
   return { total: best, currency: 'USD' };
 }
 
-/** Heuristic merchant: first substantial non-noise line. */
+function normalizeMerchantLine(raw: string): string {
+  return raw.replace(/[^\w\s&'.\-]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Reject logo OCR garbage like "U a CM ." — short letter scraps, sparse tokens,
+ * or mostly punctuation. Prefer leaving merchant blank over a bad autofill.
+ */
+export function isGarbledMerchant(line: string): boolean {
+  const t = line.trim();
+  if (t.length < 3) return true;
+
+  const letters = (t.match(/[A-Za-z]/g) || []).length;
+  if (letters < 3) return true;
+  if (letters / Math.max(t.length, 1) < 0.5) return true;
+
+  const tokens = t.split(/\s+/).filter(Boolean);
+  const letterLen = (tok: string) => (tok.match(/[A-Za-z]/g) || []).length;
+  const tiny = tokens.filter((tok) => letterLen(tok) <= 1).length;
+  if (tokens.length >= 2 && tiny >= Math.ceil(tokens.length * 0.5)) return true;
+
+  // "U a CM ." / "A C M E" style spaced logo scraps
+  if (/^([A-Za-z]\s+){2,}[A-Za-z]?\.?$/.test(t)) return true;
+
+  const compact = t.replace(/[\s.]+/g, '');
+  if (compact.length <= 4 && !/^[A-Z]{2,4}$/.test(compact)) return true;
+
+  return false;
+}
+
+/** Derive a readable merchant from a website/domain on the receipt (no brand hardcodes). */
+export function merchantFromWebsite(text: string): string | null {
+  const re =
+    /(?:https?:\/\/)?(?:www\.)?([a-z0-9](?:[a-z0-9-]{0,48}[a-z0-9])?)\.(com|net|org|co|io|shop|store|biz|market)\b/gi;
+  const skip = new Set([
+    'mail',
+    'email',
+    'support',
+    'help',
+    'forms',
+    'docs',
+    'google',
+    'apple',
+    'microsoft',
+    'facebook',
+    'instagram',
+    'twitter',
+  ]);
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(text))) {
+    const host = match[1].toLowerCase();
+    if (skip.has(host)) continue;
+    const parts = host.split(/[-_]+/).filter((p) => p.length > 1);
+    if (!parts.length) continue;
+    const name = parts.map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
+    if (name.length >= 3 && !isGarbledMerchant(name)) return name.slice(0, 100);
+  }
+  return null;
+}
+
+function scoreMerchantCandidate(line: string, index: number): number {
+  if (isGarbledMerchant(line)) return -1;
+  // Line-item / price rows (e.g. "Widget kit 22.00") are not merchants
+  if (/\d+[.,]\d{2}\b/.test(line)) return -1;
+  if (/^(subtotal|tax|total|amount|balance|change|cash|card|visa|paid|qty|item)\b/i.test(line)) {
+    return -1;
+  }
+
+  let score = 0;
+  const tokens = line.split(/\s+/).filter(Boolean);
+  if (tokens.length >= 2) score += 3;
+  else if (line.length >= 5) score += 1;
+
+  if (
+    /\b(co|inc|llc|ltd|corp|store|market|shop|cafe|coffee|hardware|restaurant|grill|kitchen|bakery|pharmacy|studio)\b/i.test(
+      line,
+    )
+  ) {
+    score += 4;
+  }
+
+  // Address / phone noise
+  if (
+    /\b(st|street|ave|avenue|rd|road|blvd|blvd\.|suite|ste|apt|floor|fl|way|ln|lane|dr|drive|ct|court|pkwy|parkway)\b/i.test(
+      line,
+    )
+  ) {
+    score -= 6;
+  }
+  if (/\b\d{3}[-.]?\d{3}[-.]?\d{4}\b/.test(line)) score -= 8;
+  if (/\d{5}(?:-\d{4})?\b/.test(line)) score -= 4;
+  if (/^\d+\s/.test(line)) score -= 5; // "400 Industrial Way"
+  if (/\d{3,}/.test(line) && !/\b(co|inc)\b/i.test(line)) score -= 2;
+
+  // Prefer header region slightly, but never enough to beat a clear later store line
+  if (index <= 2) score += 1;
+  else if (index <= 6) score += 0.5;
+
+  return score;
+}
+
+/**
+ * Merchant heuristic: skip garbled logo OCR; prefer clear printed store names,
+ * then website/domain evidence. Returns null when evidence is insufficient
+ * (caller leaves the field blank and marks Needs review).
+ */
 export function parseMerchantFromText(text: string): string | null {
   const noise =
-    /^(tel|phone|www\.|http|receipt|invoice|thank|visa|mastercard|amex|cash|change|subtotal|tax|total|date|time|\d+$)/i;
-  for (const raw of text.split(/\r?\n/)) {
-    const line = raw.replace(/[^\w\s&'.\-]/g, ' ').replace(/\s+/g, ' ').trim();
-    if (line.length < 3 || line.length > 60) continue;
-    if (noise.test(line)) continue;
-    if (/^\d/.test(line)) continue;
-    return line.slice(0, 100);
+    /^(tel|phone|fax|www\.|http|https|receipt|invoice|thank|thanks|visa|mastercard|amex|cash|change|subtotal|tax|total|date|time|qty|item|description|\d+$)/i;
+
+  const labeled = text.match(
+    /(?:merchant|store|sold\s*by|vendor|business|payee)\s*[:#-]?\s*([^\n]{3,60})/i,
+  );
+  if (labeled) {
+    const cand = normalizeMerchantLine(labeled[1]);
+    if (cand && !isGarbledMerchant(cand) && scoreMerchantCandidate(cand, 0) >= 0) {
+      return cand.slice(0, 100);
+    }
   }
+
+  const candidates: { line: string; score: number; idx: number }[] = [];
+  const lines = text.split(/\r?\n/);
+  lines.forEach((raw, idx) => {
+    const line = normalizeMerchantLine(raw);
+    if (line.length < 3 || line.length > 60) return;
+    if (noise.test(line)) return;
+    if (/^\d/.test(line)) return;
+    if (/^\$?\d/.test(line)) return;
+    const score = scoreMerchantCandidate(line, idx);
+    if (score < 0) return;
+    candidates.push({ line, score, idx });
+  });
+
+  candidates.sort((a, b) => b.score - a.score || a.idx - b.idx);
+
+  // Require a minimum score so weak scraps don't autofill
+  if (candidates.length && candidates[0].score >= 2) {
+    return candidates[0].line.slice(0, 100);
+  }
+
+  const fromWeb = merchantFromWebsite(text);
+  if (fromWeb) return fromWeb;
+
+  // Insufficient evidence — leave blank rather than paint logo garbage into Merchant
   return null;
 }
 
@@ -103,6 +274,7 @@ export function parseReceiptText(text: string, confidencePct: number): OcrExtrac
   if (!merchant) uncertain.push('merchant');
   if (!date) uncertain.push('date');
   if (total == null) uncertain.push('total');
+  // Low overall OCR confidence: keep filled values but flag for review
   if (confidencePct < 55) {
     if (merchant) uncertain.push('merchant');
     if (date) uncertain.push('date');
@@ -114,8 +286,7 @@ export function parseReceiptText(text: string, confidencePct: number): OcrExtrac
   if (!merchant && !date && total == null) {
     return base({
       status: 'needs_details',
-      message:
-        'Browser OCR could not read usable fields from this image. Enter merchant, date, and amount manually — fields stay editable. Receipt stays attached.',
+      message: CUSTOMER_REVIEW_MSG,
       confidence: confidencePct / 100,
       rawTextPreview: preview || undefined,
       uncertainFields: ['merchant', 'date', 'total'],
@@ -131,9 +302,7 @@ export function parseReceiptText(text: string, confidencePct: number): OcrExtrac
     rawTextPreview: preview || undefined,
     uncertainFields: unique,
     status: unique.length ? 'needs_details' : 'ready',
-    message: unique.length
-      ? 'Details filled in where possible — please check highlighted fields. Accuracy varies by photo quality.'
-      : 'Details filled in. Please confirm the fields before saving.',
+    message: CUSTOMER_REVIEW_MSG,
   });
 }
 
@@ -158,7 +327,7 @@ export async function extractWithBrowserOcr(
     return {
       extraction: base({
         status: 'needs_details',
-        message: prepared.message,
+        message: CUSTOMER_REVIEW_MSG,
         uncertainFields: ['merchant', 'date', 'total'],
       }),
       attachFile: prepared.attachFile,
@@ -184,14 +353,8 @@ export async function extractWithBrowserOcr(
       data: { text, confidence },
     } = await worker.recognize(prepared.ocrFile);
     await worker.terminate();
-    const extraction = parseReceiptText(text || '', Number(confidence) || 0);
-    if (prepared.note && extraction.status === 'ready') {
-      extraction.message = `Details filled in. ${prepared.note} Please confirm before saving.`;
-    } else if (prepared.note && !extraction.message.includes('Photo')) {
-      extraction.message = `${extraction.message} (${prepared.note})`;
-    }
     return {
-      extraction,
+      extraction: parseReceiptText(text || '', Number(confidence) || 0),
       attachFile: prepared.attachFile,
       previewUrl: prepared.previewUrl,
     };
@@ -199,7 +362,7 @@ export async function extractWithBrowserOcr(
     return {
       extraction: base({
         status: 'failed',
-        message: `Browser OCR failed (${e instanceof Error ? e.message : 'unknown error'}). Receipt stays attached — enter details manually.`,
+        message: CUSTOMER_REVIEW_MSG,
       }),
       attachFile: prepared.attachFile,
       previewUrl: prepared.previewUrl,

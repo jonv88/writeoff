@@ -128,15 +128,10 @@ export function SnapReceiptDialog({
     const filledAny = Boolean(result.merchant || result.date || result.total != null);
     if (filledAny && result.status !== 'failed') {
       setPipeline('details_filled');
-      setStatusMsg(
-        result.message.startsWith('Details filled')
-          ? result.message
-          : `Details filled in. ${result.message}`,
-      );
     } else {
       setPipeline('needs_manual');
-      setStatusMsg(result.message);
     }
+    setStatusMsg(result.message || 'Review the details before saving.');
   }
 
   async function acceptFile(f: File | undefined, source: 'camera' | 'file') {
@@ -336,11 +331,9 @@ export function SnapReceiptDialog({
           </button>
         </div>
         <p>Photograph or choose a receipt. No bank connection required.</p>
-        {browserMode && (
+        {browserMode && phase === 'pick' && (
           <div className="notice" style={{ marginBottom: 12 }}>
-            <strong>On-device OCR</strong> (Tesseract.js) runs in this browser — no Supabase or paid
-            API keys. Extracted merchant, date, and amount stay editable. Eligible write-off % is
-            separate and is never set from the scan.
+            On-device scan — review merchant, date, and amount before saving.
           </div>
         )}
 
@@ -445,24 +438,28 @@ export function SnapReceiptDialog({
                 )}
               </div>
             )}
-            <div className={`notice ${uncertain.length ? 'warningnote' : ''}`}>{statusMsg}</div>
-            {ocrProvider === 'tesseract.js' && (
+            <div className={`notice ${uncertain.length ? 'warningnote' : ''}`}>
+              {statusMsg || 'Review the details before saving.'}
+            </div>
+            {uncertain.length > 0 && (
               <p className="formhint">
-                Provider: browser Tesseract.js (free preview). Real on-device recognition — not a fake
-                OCR demo. Eligible write-off % is not filled from the scan.
+                <strong>Needs review:</strong>{' '}
+                {uncertain
+                  .map((f) => (f === 'total' ? 'amount' : f))
+                  .join(', ')}
+                .
               </p>
             )}
             {captureHint && <p className="formhint">{captureHint}</p>}
-            {uncertain.length > 0 && (
-              <p className="formhint">Check highlighted fields: {uncertain.join(', ')}.</p>
-            )}
             <div className="row">
               <label>
                 Merchant
+                {uncertain.includes('merchant') ? ' · Needs review' : ''}
                 <input
                   required
                   maxLength={100}
                   value={merchant}
+                  placeholder={uncertain.includes('merchant') ? 'Enter merchant' : undefined}
                   onChange={(e) => {
                     markTouched('merchant');
                     setMerchant(e.target.value);
@@ -472,6 +469,7 @@ export function SnapReceiptDialog({
               </label>
               <label>
                 Amount
+                {uncertain.includes('total') ? ' · Needs review' : ''}
                 <input
                   type="number"
                   min={0.01}
@@ -489,6 +487,7 @@ export function SnapReceiptDialog({
             <div className="row">
               <label>
                 Date
+                {uncertain.includes('date') ? ' · Needs review' : ''}
                 <input
                   type="date"
                   required
