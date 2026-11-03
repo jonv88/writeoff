@@ -8,5 +8,6 @@ Nonpersonal images for OCR / upload verification. Do not add creator or customer
 | `synthetic-acme-style.png` | Stylized logo + printed NORTHSIDE HARDWARE · Nov 2, 2026 · $25.95 (no brand hardcode in OCR) |
 | `synthetic-stylized-logo.png` | Decorative logo + www.riverbend-market.com · Nov 1, 2026 · $19.90 |
 | `synthetic-logo-garbled-only.png` | No readable store name (shape logo) · Nov 2, 2026 · $25.95 — merchant should stay blank |
+| `synthetic-slogan-footer.png` | Garbled/stylized logo + slogan + footer “Thank you for shopping at Greenfield Foods” · Nov 2, 2026 · $25.96 |
 
 Used by `npm run verify:receipt-flow` and browser OCR checks. Nonpersonal synthetic only.

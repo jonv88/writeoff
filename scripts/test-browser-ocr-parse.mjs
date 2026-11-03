@@ -25,6 +25,47 @@ function isGarbledMerchant(line) {
   return false;
 }
 
+function isSloganLine(line) {
+  const t = line.trim();
+  if (!t) return false;
+  if (/^(our|your|welcome(\s+to)?|the\s+best|happily|proudly|simply|always)\b/i.test(t)) {
+    return true;
+  }
+  if (
+    /\b(favorite|favourite|local\s+super|everyday\s+low|quality\s+you|best\s+deals|fresh\s+daily|shop\s+local|super\s*marke)\b/i.test(
+      t,
+    )
+  ) {
+    return true;
+  }
+  if (
+    /\b(our|your|favorite|favourite|local|best|fresh|quality|everyday)\b/i.test(t) &&
+    /\b(market|marke|store|shop|place|choice|deals|savings|prices|produce|grocer)/i.test(t) &&
+    t.split(/\s+/).length >= 3
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function merchantFromThankYou(text) {
+  const patterns = [
+    /thank(?:s|\s*you)\s+for\s+shopping\s+(?:at\s+)?([^\n.!?]{3,60})/i,
+    /thank(?:s|\s*you)\s+for\s+visiting\s+(?:at\s+)?([^\n.!?]{3,60})/i,
+    /thanks\s+for\s+choosing\s+([^\n.!?]{3,60})/i,
+  ];
+  for (const re of patterns) {
+    const m = text.match(re);
+    if (!m) continue;
+    let cand = normalizeMerchantLine(m[1]);
+    cand = cand.replace(/\b(today|with\s+us|again)\b/gi, '').replace(/\s+/g, ' ').trim();
+    if (!cand || isGarbledMerchant(cand) || isSloganLine(cand)) continue;
+    if (scoreMerchantCandidate(cand, 99) < 0) continue;
+    return cand.slice(0, 100);
+  }
+  return null;
+}
+
 function merchantFromWebsite(text) {
   const re =
     /(?:https?:\/\/)?(?:www\.)?([a-z0-9](?:[a-z0-9-]{0,48}[a-z0-9])?)\.(com|net|org|co|io|shop|store|biz|market)\b/gi;
@@ -36,13 +77,17 @@ function merchantFromWebsite(text) {
     const parts = host.split(/[-_]+/).filter((p) => p.length > 1);
     if (!parts.length) continue;
     const name = parts.map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
-    if (name.length >= 3 && !isGarbledMerchant(name)) return name.slice(0, 100);
+    if (name.length >= 3 && !isGarbledMerchant(name) && !isSloganLine(name)) return name.slice(0, 100);
   }
   return null;
 }
 
+const STORE_ENTITY =
+  /\b(co|inc|llc|ltd|corp|store|market|shop|cafe|coffee|hardware|restaurant|grill|kitchen|bakery|pharmacy|studio|grocer(?:y|ies)?|foods|mart)\b/i;
+
 function scoreMerchantCandidate(line, index) {
   if (isGarbledMerchant(line)) return -1;
+  if (isSloganLine(line)) return -1;
   if (/\d+[.,]\d{2}\b/.test(line)) return -1;
   if (/^(subtotal|tax|total|amount|balance|change|cash|card|visa|paid|qty|item)\b/i.test(line)) {
     return -1;
@@ -51,13 +96,7 @@ function scoreMerchantCandidate(line, index) {
   const tokens = line.split(/\s+/).filter(Boolean);
   if (tokens.length >= 2) score += 3;
   else if (line.length >= 5) score += 1;
-  if (
-    /\b(co|inc|llc|ltd|corp|store|market|shop|cafe|coffee|hardware|restaurant|grill|kitchen|bakery|pharmacy|studio)\b/i.test(
-      line,
-    )
-  ) {
-    score += 4;
-  }
+  if (STORE_ENTITY.test(line)) score += 4;
   if (
     /\b(st|street|ave|avenue|rd|road|blvd|blvd\.|suite|ste|apt|floor|fl|way|ln|lane|dr|drive|ct|court|pkwy|parkway)\b/i.test(
       line,
@@ -74,6 +113,19 @@ function scoreMerchantCandidate(line, index) {
   return score;
 }
 
+function isStrongStoreName(line) {
+  if (isSloganLine(line) || isGarbledMerchant(line)) return false;
+  if (STORE_ENTITY.test(line) && line.split(/\s+/).length >= 2) return true;
+  if (
+    /^[A-Z0-9][A-Z0-9\s&'.-]{3,}$/.test(line) &&
+    line.split(/\s+/).length >= 2 &&
+    !/^(OUR|YOUR|THE)\b/.test(line)
+  ) {
+    return true;
+  }
+  return false;
+}
+
 function parseMerchantFromText(text) {
   const noise =
     /^(tel|phone|fax|www\.|http|https|receipt|invoice|thank|thanks|visa|mastercard|amex|cash|change|subtotal|tax|total|date|time|qty|item|description|\d+$)/i;
@@ -82,10 +134,20 @@ function parseMerchantFromText(text) {
   );
   if (labeled) {
     const cand = normalizeMerchantLine(labeled[1]);
-    if (cand && !isGarbledMerchant(cand) && scoreMerchantCandidate(cand, 0) >= 0) {
+    if (
+      cand &&
+      !isGarbledMerchant(cand) &&
+      !isSloganLine(cand) &&
+      scoreMerchantCandidate(cand, 0) >= 0
+    ) {
       return cand.slice(0, 100);
     }
   }
+  const fromThanks = merchantFromThankYou(text);
+  if (fromThanks) return fromThanks;
+  const fromWeb = merchantFromWebsite(text);
+  if (fromWeb) return fromWeb;
+
   const candidates = [];
   text.split(/\r?\n/).forEach((raw, idx) => {
     const line = normalizeMerchantLine(raw);
@@ -93,14 +155,16 @@ function parseMerchantFromText(text) {
     if (noise.test(line)) return;
     if (/^\d/.test(line)) return;
     if (/^\$?\d/.test(line)) return;
+    if (isSloganLine(line)) return;
     const score = scoreMerchantCandidate(line, idx);
     if (score < 0) return;
+    if (!isStrongStoreName(line) && score < 5) return;
     candidates.push({ line, score, idx });
   });
   candidates.sort((a, b) => b.score - a.score || a.idx - b.idx);
-  if (candidates.length && candidates[0].score >= 2) return candidates[0].line.slice(0, 100);
-  const fromWeb = merchantFromWebsite(text);
-  if (fromWeb) return fromWeb;
+  if (candidates.length && (isStrongStoreName(candidates[0].line) || candidates[0].score >= 5)) {
+    return candidates[0].line.slice(0, 100);
+  }
   return null;
 }
 
@@ -172,6 +236,29 @@ www.northside-hardware.com
 Nov 2, 2026
 TOTAL $25.95`;
 assert.equal(parseMerchantFromText(web), 'Northside Hardware');
+
+// Slogan must not become merchant; footer thank-you wins; keep $25.96 / Nov 2, 2026
+const sloganFooter = `U a CM .
+OUR Favorite Local Super marke
+400 Industrial Way
+Nov 2, 2026
+Produce         $12.00
+Dairy            $8.50
+Tax              $5.46
+TOTAL USD       $25.96
+Thank you for shopping at Greenfield Foods`;
+assert.equal(isSloganLine('OUR Favorite Local Super marke'), true);
+assert.equal(parseMerchantFromText(sloganFooter), 'Greenfield Foods');
+assert.equal(parseDateFromText(sloganFooter), '2026-11-02');
+assert.equal(parseTotalFromText(sloganFooter), 25.96);
+
+// Slogan alone (no footer / site) → blank merchant, keep total/date
+const sloganOnly = `OUR Favorite Local Super marke
+Nov 2, 2026
+TOTAL $25.96`;
+assert.equal(parseMerchantFromText(sloganOnly), null);
+assert.equal(parseDateFromText(sloganOnly), '2026-11-02');
+assert.equal(parseTotalFromText(sloganOnly), 25.96);
 
 assert.equal(parseMerchantFromText('R i v\nTOTAL $12.00\n01/15/2026'), null);
 assert.equal(parseMerchantFromText('TOTAL\n$12.00'), null);

@@ -6,7 +6,7 @@
 import type { OcrExtraction } from './adapter';
 import { prepareReceiptPhoto } from './photoPrep';
 
-const VERSION = 'browser-tesseract-2026.11.03b';
+const VERSION = 'browser-tesseract-2026.11.03c';
 
 const CUSTOMER_REVIEW_MSG = 'Review the details before saving.';
 
@@ -145,6 +145,54 @@ export function isGarbledMerchant(line: string): boolean {
   return false;
 }
 
+/**
+ * Marketing / tagline lines are not merchants (e.g. "OUR Favorite Local Super marke").
+ * Generic — no brand-specific rules.
+ */
+export function isSloganLine(line: string): boolean {
+  const t = line.trim();
+  if (!t) return false;
+  if (/^(our|your|welcome(\s+to)?|the\s+best|happily|proudly|simply|always)\b/i.test(t)) {
+    return true;
+  }
+  if (
+    /\b(favorite|favourite|local\s+super|everyday\s+low|quality\s+you|best\s+deals|fresh\s+daily|shop\s+local|super\s*marke)\b/i.test(
+      t,
+    )
+  ) {
+    return true;
+  }
+  // Slogan-shaped: possessive/marketing opener + 3+ words
+  if (
+    /\b(our|your|favorite|favourite|local|best|fresh|quality|everyday)\b/i.test(t) &&
+    /\b(market|marke|store|shop|place|choice|deals|savings|prices|produce|grocer)/i.test(t) &&
+    t.split(/\s+/).length >= 3
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/** Footer “Thank you for shopping …” often carries the real store name. */
+export function merchantFromThankYou(text: string): string | null {
+  const patterns = [
+    /thank(?:s|\s*you)\s+for\s+shopping\s+(?:at\s+)?([^\n.!?]{3,60})/i,
+    /thank(?:s|\s*you)\s+for\s+visiting\s+(?:at\s+)?([^\n.!?]{3,60})/i,
+    /thanks\s+for\s+choosing\s+([^\n.!?]{3,60})/i,
+  ];
+  for (const re of patterns) {
+    const m = text.match(re);
+    if (!m) continue;
+    let cand = normalizeMerchantLine(m[1]);
+    // Drop trailing "today" / "with us"
+    cand = cand.replace(/\b(today|with\s+us|again)\b/gi, '').replace(/\s+/g, ' ').trim();
+    if (!cand || isGarbledMerchant(cand) || isSloganLine(cand)) continue;
+    if (scoreMerchantCandidate(cand, 99) < 0) continue;
+    return cand.slice(0, 100);
+  }
+  return null;
+}
+
 /** Derive a readable merchant from a website/domain on the receipt (no brand hardcodes). */
 export function merchantFromWebsite(text: string): string | null {
   const re =
@@ -170,13 +218,19 @@ export function merchantFromWebsite(text: string): string | null {
     const parts = host.split(/[-_]+/).filter((p) => p.length > 1);
     if (!parts.length) continue;
     const name = parts.map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
-    if (name.length >= 3 && !isGarbledMerchant(name)) return name.slice(0, 100);
+    if (name.length >= 3 && !isGarbledMerchant(name) && !isSloganLine(name)) {
+      return name.slice(0, 100);
+    }
   }
   return null;
 }
 
+const STORE_ENTITY =
+  /\b(co|inc|llc|ltd|corp|store|market|shop|cafe|coffee|hardware|restaurant|grill|kitchen|bakery|pharmacy|studio|grocer(?:y|ies)?|foods|mart)\b/i;
+
 function scoreMerchantCandidate(line: string, index: number): number {
   if (isGarbledMerchant(line)) return -1;
+  if (isSloganLine(line)) return -1;
   // Line-item / price rows (e.g. "Widget kit 22.00") are not merchants
   if (/\d+[.,]\d{2}\b/.test(line)) return -1;
   if (/^(subtotal|tax|total|amount|balance|change|cash|card|visa|paid|qty|item)\b/i.test(line)) {
@@ -188,11 +242,7 @@ function scoreMerchantCandidate(line: string, index: number): number {
   if (tokens.length >= 2) score += 3;
   else if (line.length >= 5) score += 1;
 
-  if (
-    /\b(co|inc|llc|ltd|corp|store|market|shop|cafe|coffee|hardware|restaurant|grill|kitchen|bakery|pharmacy|studio)\b/i.test(
-      line,
-    )
-  ) {
+  if (STORE_ENTITY.test(line)) {
     score += 4;
   }
 
@@ -216,10 +266,25 @@ function scoreMerchantCandidate(line: string, index: number): number {
   return score;
 }
 
+/** Strong enough to autofill without footer/website corroboration. */
+function isStrongStoreName(line: string): boolean {
+  if (isSloganLine(line) || isGarbledMerchant(line)) return false;
+  if (STORE_ENTITY.test(line) && line.split(/\s+/).length >= 2) return true;
+  // ALL CAPS multi-word header (common on receipts), excluding slogan openers
+  if (
+    /^[A-Z0-9][A-Z0-9\s&'.-]{3,}$/.test(line) &&
+    line.split(/\s+/).length >= 2 &&
+    !/^(OUR|YOUR|THE)\b/.test(line)
+  ) {
+    return true;
+  }
+  return false;
+}
+
 /**
- * Merchant heuristic: skip garbled logo OCR; prefer clear printed store names,
- * then website/domain evidence. Returns null when evidence is insufficient
- * (caller leaves the field blank and marks Needs review).
+ * Merchant heuristic: skip garbled logos and slogans; prefer thank-you footer
+ * or website/domain evidence, then strong printed store names. Returns null
+ * when evidence is insufficient (blank + Needs review).
  */
 export function parseMerchantFromText(text: string): string | null {
   const noise =
@@ -230,10 +295,22 @@ export function parseMerchantFromText(text: string): string | null {
   );
   if (labeled) {
     const cand = normalizeMerchantLine(labeled[1]);
-    if (cand && !isGarbledMerchant(cand) && scoreMerchantCandidate(cand, 0) >= 0) {
+    if (
+      cand &&
+      !isGarbledMerchant(cand) &&
+      !isSloganLine(cand) &&
+      scoreMerchantCandidate(cand, 0) >= 0
+    ) {
       return cand.slice(0, 100);
     }
   }
+
+  // Corroborating evidence first (footer / domain) — beats slogans and weak headers
+  const fromThanks = merchantFromThankYou(text);
+  if (fromThanks) return fromThanks;
+
+  const fromWeb = merchantFromWebsite(text);
+  if (fromWeb) return fromWeb;
 
   const candidates: { line: string; score: number; idx: number }[] = [];
   const lines = text.split(/\r?\n/);
@@ -243,22 +320,20 @@ export function parseMerchantFromText(text: string): string | null {
     if (noise.test(line)) return;
     if (/^\d/.test(line)) return;
     if (/^\$?\d/.test(line)) return;
+    if (isSloganLine(line)) return;
     const score = scoreMerchantCandidate(line, idx);
     if (score < 0) return;
+    if (!isStrongStoreName(line) && score < 5) return;
     candidates.push({ line, score, idx });
   });
 
   candidates.sort((a, b) => b.score - a.score || a.idx - b.idx);
 
-  // Require a minimum score so weak scraps don't autofill
-  if (candidates.length && candidates[0].score >= 2) {
+  if (candidates.length && (isStrongStoreName(candidates[0].line) || candidates[0].score >= 5)) {
     return candidates[0].line.slice(0, 100);
   }
 
-  const fromWeb = merchantFromWebsite(text);
-  if (fromWeb) return fromWeb;
-
-  // Insufficient evidence — leave blank rather than paint logo garbage into Merchant
+  // Insufficient evidence — leave blank rather than slogan / logo garbage
   return null;
 }
 
