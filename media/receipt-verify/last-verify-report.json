@@ -1,0 +1,37 @@
+{
+  "at": "2026-11-02T22:11:43.924Z",
+  "projectRef": null,
+  "results": [
+    {
+      "name": "synthetic-fixture",
+      "pass": true,
+      "detail": "sha256 3480a08bb89c…"
+    },
+    {
+      "name": "suggestion-engine",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "edge-function-source",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "no-vite-ocr-secrets",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "live-upload-extract",
+      "pass": null,
+      "detail": "No WRITEOFF_SUPABASE_URL / ANON_KEY — dry run only"
+    },
+    {
+      "name": "two-customer-isolation",
+      "pass": null,
+      "detail": "Needs live Writeoff project"
+    }
+  ],
+  "live": false
+}

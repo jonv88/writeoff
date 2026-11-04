@@ -1,0 +1,7 @@
+---
+description: Preserve the exact approved Writeoff template while building the subscription product
+alwaysApply: true
+---
+Read and follow AGENTS.md and CURSOR_PROMPT.md. Verify reference-template hashes against TEMPLATE_LOCK.json. Keep reference-template immutable. Do not redesign, rebrand, replace fonts/colors/layout/navigation, apply a generic UI kit theme, or add a marketing site. Preserve the exact approved CSS/DOM appearance while wiring functionality. New controls and flows must match the existing visual language. Validate matching-content visual parity at the locked viewport sizes. No customer financial data, credentials or fake connection/purchase states in source. Implementation claims must distinguish sandbox, production, tested and blocked capabilities.
+
+Receipt-first capture is required: add Snap a receipt in the existing visual language, support phone camera/library, real OCR, editable draft, save/match and later bank reconciliation. No bank account is required for this path. Do not fake extraction, silently duplicate spend or classify all photographed purchases as deductible.

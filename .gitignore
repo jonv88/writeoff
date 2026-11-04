@@ -1,0 +1,50 @@
+# Dependencies
+node_modules/
+
+# Build
+dist/
+dist-ssr/
+*.local
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Logs / coverage
+logs/
+*.log
+npm-debug.log*
+coverage/
+.tmp/
+
+# Capacitor / native (generated locally; do not commit secrets or signing material)
+ios/App/Pods/
+ios/App/Podfile.lock
+ios/DerivedData/
+*.xcuserdata/
+*.mobileprovision
+*.p12
+*.pem
+
+# Supabase local
+supabase/.branches/
+supabase/.temp/
+
+# Playwright / test artifacts
+test-results/
+playwright-report/
+blob-report/
+
+# Personal / generated financial fixtures (never commit real customer data)
+fixtures/personal/
+*.personal.json
+
+# Tesseract language data downloaded at runtime
+*.traineddata

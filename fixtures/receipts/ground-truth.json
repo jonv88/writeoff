@@ -1,0 +1,104 @@
+{
+  "version": "receipt-reliability-2026.11.04",
+  "description": "Varied synthetic ground-truth receipts for OCR reliability eval. Nonpersonal only.",
+  "fixtures": [
+    {
+      "id": "gt-acme-balance",
+      "file": "gt-acme-balance.png",
+      "split": "tune",
+      "kind": "chain_grocery_phone_shadow_angle",
+      "merchant": "ACME",
+      "date": "2026-11-02",
+      "total": 25.96,
+      "notes": "Multiple amounts; BALANCE is final paid; YOU SAVED is larger"
+    },
+    {
+      "id": "gt-restaurant-tip",
+      "file": "gt-restaurant-tip.png",
+      "split": "tune",
+      "kind": "independent_restaurant_tip_phone_crop",
+      "merchant": "Riverbend Bistro",
+      "date": "2026-11-03",
+      "total": 29.3,
+      "notes": "Tip present; final is TOTAL/AMOUNT PAID not tip"
+    },
+    {
+      "id": "gt-discount-grand-total",
+      "file": "gt-discount-grand-total.png",
+      "split": "tune",
+      "kind": "independent_discount_multi_total",
+      "merchant": "NORTHSIDE HARDWARE",
+      "date": "2026-11-01",
+      "total": 25.37,
+      "notes": "Discount line; GRAND TOTAL is final"
+    },
+    {
+      "id": "gt-walmart-chain",
+      "file": "gt-walmart-chain.png",
+      "split": "holdout",
+      "kind": "chain_dim_angle",
+      "merchant": "Walmart",
+      "date": "2026-11-01",
+      "total": 19.9,
+      "notes": "Holdout; line items sum less than TOTAL (gift card style)"
+    },
+    {
+      "id": "gt-coffee-digital",
+      "file": "gt-coffee-digital.png",
+      "split": "tune",
+      "kind": "independent_digital_clean",
+      "merchant": "DEMO COFFEE CO",
+      "date": "2026-10-21",
+      "total": 4.9
+    },
+    {
+      "id": "gt-balance-due-cafe",
+      "file": "gt-balance-due-cafe.png",
+      "split": "holdout",
+      "kind": "independent_balance_due_phone",
+      "merchant": "Maple Street Cafe",
+      "date": "2026-11-04",
+      "total": 20.78,
+      "notes": "Holdout; BALANCE DUE; tip; unfamiliar merchant"
+    },
+    {
+      "id": "gt-savings-larger-than-total",
+      "file": "gt-savings-larger-than-total.png",
+      "split": "tune",
+      "kind": "savings_larger_than_paid",
+      "merchant": "Greenfield Foods",
+      "date": "2026-11-02",
+      "total": 23.76,
+      "notes": "YOU SAVED 48 is largest; amount due 23.76 \u2014 largest-number fallback fails"
+    },
+    {
+      "id": "gt-digital-invoice",
+      "file": "gt-digital-invoice.png",
+      "split": "holdout",
+      "kind": "digital_invoice_pdf_like",
+      "merchant": "Oak & Pine Supply",
+      "date": "2026-10-30",
+      "total": 21.6
+    },
+    {
+      "id": "gt-no-total-label",
+      "file": "gt-no-total-label.png",
+      "split": "tune",
+      "kind": "no_labeled_total_expect_blank",
+      "merchant": "Corner Newsstand",
+      "date": "2026-11-03",
+      "total": null,
+      "notes": "No TOTAL/BALANCE label \u2014 amount should stay blank (expect_blank)"
+    },
+    {
+      "id": "gt-conflicting-totals",
+      "file": "gt-conflicting-totals.png",
+      "split": "holdout",
+      "kind": "conflicting_totals_expect_blank_or_careful",
+      "merchant": "Harbor Market",
+      "date": "2026-11-02",
+      "total": null,
+      "notes": "Conflicting labeled totals \u2014 prefer blank over wrong fill"
+    }
+  ]
+}

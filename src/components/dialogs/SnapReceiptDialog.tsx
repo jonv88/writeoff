@@ -1,0 +1,616 @@
+import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { categoryFor, uid } from '../../lib/core';
+import { extractReceipt } from '../../lib/ocr/adapter';
+import { formatOcrAmount } from '../../lib/ocr/browserOcr';
+import { suggestWriteOff } from '../../lib/writeoffEngine';
+import { emptyExpense } from '../../lib/types';
+import { useWorkspace } from '../../context/WorkspaceContext';
+
+type Phase = 'pick' | 'reading' | 'review';
+type PipelineState = 'idle' | 'photo_attached' | 'reading' | 'details_filled' | 'needs_manual';
+
+type FieldKey = 'merchant' | 'amount' | 'date';
+
+export function SnapReceiptDialog({
+  open,
+  onClose,
+}: {
+  open: boolean;
+  onClose: () => void;
+}) {
+  const { profile, rules, records, localPreview, saveRecord, showToast } = useWorkspace();
+  const ref = useRef<HTMLDialogElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  /** Fields the user typed into — OCR must not overwrite these. */
+  const userTouched = useRef<Record<FieldKey, boolean>>({
+    merchant: false,
+    amount: false,
+    date: false,
+  });
+
+  const [phase, setPhase] = useState<Phase>('pick');
+  const [pipeline, setPipeline] = useState<PipelineState>('idle');
+  const [file, setFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [statusMsg, setStatusMsg] = useState('');
+  const [merchant, setMerchant] = useState('');
+  const [amount, setAmount] = useState('');
+  const [date, setDate] = useState('');
+  const [currency, setCurrency] = useState('USD');
+  const [notes, setNotes] = useState('');
+  const [uncertain, setUncertain] = useState<string[]>([]);
+  const [fieldHints, setFieldHints] = useState<{
+    merchant?: string;
+    date?: string;
+    total?: string;
+  }>({});
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [matchId, setMatchId] = useState<string>('');
+  const [serverStoragePath, setServerStoragePath] = useState<string | null>(null);
+  const [ocrProvider, setOcrProvider] = useState<string | null>(null);
+  const [extractionStatus, setExtractionStatus] = useState<
+    'none' | 'ready' | 'needs_details' | 'failed' | 'blocked'
+  >('none');
+  const [extractionVersion, setExtractionVersion] = useState('');
+  const [captureHint, setCaptureHint] = useState('');
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    if (open && !el.open) {
+      setPhase('pick');
+      setPipeline('idle');
+      setFile(null);
+      setPreviewUrl(null);
+      setStatusMsg('');
+      setMerchant('');
+      setAmount('');
+      setDate('');
+      setCurrency('USD');
+      setNotes('');
+      setUncertain([]);
+      setFieldHints({});
+      setError('');
+      setMatchId('');
+      setServerStoragePath(null);
+      setOcrProvider(null);
+      setExtractionStatus('none');
+      setExtractionVersion('');
+      setCaptureHint('');
+      userTouched.current = { merchant: false, amount: false, date: false };
+      if (cameraInputRef.current) cameraInputRef.current.value = '';
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      el.showModal();
+    } else if (!open && el.open) {
+      el.close();
+    }
+  }, [open]);
+
+  useEffect(() => {
+    return () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    };
+  }, [previewUrl]);
+
+  function markTouched(key: FieldKey) {
+    userTouched.current[key] = true;
+  }
+
+  function applyOcrToForm(result: {
+    merchant: string | null;
+    date: string | null;
+    total: number | null;
+    currency: string | null;
+    uncertainFields: string[];
+    fieldHints?: { merchant?: string; date?: string; total?: string };
+    status: string;
+    message: string;
+  }) {
+    // Only fill evidence-backed fields. Missing OCR values stay blank — never invent.
+    if (!userTouched.current.merchant) {
+      setMerchant(result.merchant?.trim() || '');
+    }
+    if (!userTouched.current.date) {
+      setDate(result.date || '');
+    }
+    if (!userTouched.current.amount) {
+      setAmount(result.total != null ? formatOcrAmount(result.total) : '');
+    }
+    if (result.currency) setCurrency(result.currency);
+
+    const uncertainNext = [...result.uncertainFields];
+    if (!userTouched.current.merchant && !result.merchant && !uncertainNext.includes('merchant')) {
+      uncertainNext.push('merchant');
+    }
+    if (!userTouched.current.date && !result.date && !uncertainNext.includes('date')) {
+      uncertainNext.push('date');
+    }
+    if (!userTouched.current.amount && result.total == null && !uncertainNext.includes('total')) {
+      uncertainNext.push('total');
+    }
+    const uniqueUncertain = [...new Set(uncertainNext)];
+    setUncertain(uniqueUncertain);
+    setFieldHints({
+      merchant:
+        result.fieldHints?.merchant ||
+        (uniqueUncertain.includes('merchant') ? 'Confirm the merchant name' : undefined),
+      date:
+        result.fieldHints?.date ||
+        (uniqueUncertain.includes('date') ? 'Confirm the purchase date' : undefined),
+      total:
+        result.fieldHints?.total ||
+        (uniqueUncertain.includes('total') ? 'Confirm the final amount paid' : undefined),
+    });
+
+    const filledAny = Boolean(result.merchant || result.date || result.total != null);
+    if (filledAny && result.status !== 'failed') {
+      setPipeline('details_filled');
+    } else {
+      setPipeline('needs_manual');
+    }
+    setStatusMsg(result.message || 'Review the details before saving.');
+  }
+
+  async function acceptFile(f: File | undefined, source: 'camera' | 'file') {
+    if (!f) return;
+    setError('');
+    setCaptureHint(
+      source === 'camera'
+        ? 'Take photo uses the device camera when the browser supports it (capture=environment). On many desktops the system file picker opens instead.'
+        : 'Choose file opens the photo library / file picker (no forced camera).',
+    );
+
+    setPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return URL.createObjectURL(f);
+    });
+
+    setPhase('reading');
+    setPipeline('photo_attached');
+    setStatusMsg('Photo attached');
+    setFile(f);
+
+    const draftId = uid();
+    setPipeline('reading');
+    setStatusMsg('Reading receipt…');
+
+    const bundle = await extractReceipt(f, {
+      expenseId: draftId,
+      preferBrowser: true,
+      onProgress: (msg) => {
+        if (/^Photo attached/i.test(msg)) {
+          setPipeline('photo_attached');
+        } else if (/Reading receipt/i.test(msg) || /Loading on-device|preparing/i.test(msg)) {
+          setPipeline('reading');
+        }
+        setStatusMsg(msg);
+      },
+    });
+
+    const { extraction: result, attachFile, previewUrl: nextPreview } = bundle;
+
+    setPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      if (nextPreview) return nextPreview;
+      if (attachFile) return URL.createObjectURL(attachFile);
+      return null;
+    });
+
+    // Keep receipt attached even when OCR fails / needs manual entry
+    setFile(attachFile || f);
+    setOcrProvider(result.provider || null);
+    setExtractionVersion(result.version || '');
+    setServerStoragePath(result.storagePath || null);
+    setExtractionStatus(
+      result.status === 'ready' ||
+        result.status === 'needs_details' ||
+        result.status === 'failed' ||
+        result.status === 'blocked'
+        ? result.status
+        : 'needs_details',
+    );
+
+    applyOcrToForm(result);
+    setPhase('review');
+
+    if (result.merchant && result.date && result.total != null) {
+      const hit = records.find(
+        (r) =>
+          r.merchant.toLowerCase() === result.merchant!.toLowerCase() &&
+          r.date === result.date &&
+          Math.abs(r.amount - result.total!) < 0.005,
+      );
+      if (hit) setMatchId(hit.id);
+    }
+  }
+
+  const draftCategory = categoryFor(merchant);
+  const suggestion = suggestWriteOff(
+    {
+      merchant,
+      category: draftCategory,
+      type: 'Unsorted',
+      notes,
+      reviewed: false,
+      treatmentSource: 'suggestion',
+      percent: 0,
+      eligibilityChecked: false,
+    },
+    profile,
+    rules,
+  );
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    setError('');
+    setBusy(true);
+    try {
+      if (!merchant.trim()) throw new Error('Please enter a merchant.');
+      if (!date) throw new Error('Please enter the transaction date.');
+      const amountNum = Number(amount);
+      if (!Number.isFinite(amountNum) || amountNum < 0.01) {
+        throw new Error('Please enter a valid amount.');
+      }
+
+      const receiptMeta = {
+        name: file?.name || 'receipt',
+        storagePath: serverStoragePath || '',
+        localPreviewUrl: previewUrl || undefined,
+        mimeType: file?.type,
+        sizeBytes: file?.size,
+        extractionStatus:
+          extractionStatus === 'none'
+            ? uncertain.length
+              ? ('needs_details' as const)
+              : ('ready' as const)
+            : extractionStatus === 'blocked'
+              ? ('needs_details' as const)
+              : extractionStatus,
+        extractionVersion: extractionVersion || suggestion.ruleVersion,
+      };
+
+      if (matchId) {
+        const existing = records.find((r) => r.id === matchId);
+        if (!existing) throw new Error('Selected match was not found.');
+        await saveRecord(
+          {
+            ...existing,
+            notes: notes.trim() || existing.notes,
+            receipt: {
+              ...receiptMeta,
+              storagePath: serverStoragePath || existing.receipt?.storagePath || '',
+            },
+          },
+          serverStoragePath ? null : file,
+        );
+        showToast('Receipt attached to the matching expense.');
+        onClose();
+        return;
+      }
+
+      const record = emptyExpense({
+        id: uid(),
+        merchant: merchant.trim(),
+        amount: amountNum,
+        currency,
+        date,
+        category: suggestion.category,
+        type: 'Unsorted',
+        notes: notes.trim(),
+        source: 'Receipt capture',
+        treatmentSource: 'suggestion',
+        // Eligible % is never set from OCR — stays 0 until the user reviews.
+        percent: 0,
+        eligibilityChecked: false,
+        suggestedStatus: suggestion.status,
+        suggestionReason: suggestion.reason,
+        suggestionRuleId: suggestion.ruleId,
+        suggestionRuleVersion: suggestion.ruleVersion,
+        receipt: receiptMeta,
+      });
+      await saveRecord(record, serverStoragePath ? null : file);
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const browserMode = localPreview || ocrProvider === 'tesseract.js' || phase !== 'pick';
+
+  const pipelineLabel =
+    pipeline === 'photo_attached'
+      ? 'Photo attached'
+      : pipeline === 'reading'
+        ? 'Reading receipt'
+        : pipeline === 'details_filled'
+          ? 'Details filled in'
+          : pipeline === 'needs_manual'
+            ? 'Finish manually'
+            : null;
+
+  return (
+    <dialog
+      id="snapReceiptdialog"
+      ref={ref}
+      onClose={onClose}
+      onCancel={(e) => {
+        e.preventDefault();
+        onClose();
+      }}
+    >
+      <form onSubmit={onSubmit}>
+        <div className="panelhead">
+          <h2>Snap a receipt</h2>
+          <button type="button" className="edit" onClick={onClose} aria-label="Close">
+            ✕
+          </button>
+        </div>
+        <p>Photograph or choose a receipt. No bank connection required.</p>
+        {browserMode && phase === 'pick' && (
+          <div className="notice" style={{ marginBottom: 12 }}>
+            On-device scan — review merchant, date, and amount before saving.
+          </div>
+        )}
+
+        {phase === 'pick' && (
+          <div className="importbox">
+            <div className="inlinebuttons" style={{ marginBottom: 12 }}>
+              <button
+                type="button"
+                className="btn"
+                onClick={() => cameraInputRef.current?.click()}
+              >
+                Take photo
+              </button>
+              <button
+                type="button"
+                className="btn secondary"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                Choose file
+              </button>
+            </div>
+            {/* capture=environment: requests rear camera on supporting mobile browsers.
+                Desktop Chrome/Firefox typically fall back to the file picker — that is expected. */}
+            <input
+              ref={cameraInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              style={{ position: 'absolute', width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
+              aria-label="Take photo with camera"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                e.target.value = '';
+                void acceptFile(f, 'camera');
+              }}
+            />
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*,application/pdf"
+              style={{ position: 'absolute', width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
+              aria-label="Choose receipt file"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                e.target.value = '';
+                void acceptFile(f, 'file');
+              }}
+            />
+            <p className="formhint">
+              <strong>Take photo</strong> asks for the rear camera when the browser supports it
+              (iPhone Safari usually opens Camera). <strong>Choose file</strong> opens your library
+              or files. JPEG/PNG preferred · large photos are resized for OCR. Cancel anytime —
+              nothing is saved until you confirm.
+              {localPreview
+                ? ' The file and extracted fields stay in this browser only — they do not sync across devices.'
+                : ''}
+            </p>
+          </div>
+        )}
+
+        {phase === 'reading' && (
+          <div className="notice">
+            {pipelineLabel && (
+              <div className="formhint" style={{ marginBottom: 6 }}>
+                <strong>{pipelineLabel}</strong>
+              </div>
+            )}
+            {statusMsg || 'Working…'}
+            {previewUrl && (
+              <div style={{ marginTop: 10 }}>
+                <img
+                  src={previewUrl}
+                  alt="Receipt preview"
+                  style={{ maxWidth: '100%', maxHeight: 140, borderRadius: 8 }}
+                />
+              </div>
+            )}
+          </div>
+        )}
+
+        {phase === 'review' && (
+          <>
+            {pipelineLabel && (
+              <div className="notice" style={{ marginBottom: 8 }}>
+                <strong>{pipelineLabel}</strong>
+                {file ? ` · ${file.name}` : ''}
+              </div>
+            )}
+            {previewUrl && (
+              <div className="notice" style={{ marginBottom: 12 }}>
+                <div className="formhint" style={{ marginBottom: 8 }}>
+                  Receipt attached
+                </div>
+                {file?.type.startsWith('image/') || /\.jpe?g$/i.test(file?.name || '') ? (
+                  <img
+                    src={previewUrl}
+                    alt="Receipt preview"
+                    style={{ maxWidth: '100%', maxHeight: 180, borderRadius: 8 }}
+                  />
+                ) : (
+                  <span>{file?.name || 'Receipt file'}</span>
+                )}
+              </div>
+            )}
+            <div className={`notice ${uncertain.length ? 'warningnote' : ''}`}>
+              {statusMsg || 'Review the details before saving.'}
+            </div>
+            {uncertain.length > 0 && (
+              <p className="formhint">
+                <strong>Needs review:</strong>{' '}
+                {[
+                  fieldHints.merchant,
+                  fieldHints.total,
+                  fieldHints.date,
+                ]
+                  .filter(Boolean)
+                  .join(' · ') ||
+                  uncertain.map((f) => (f === 'total' ? 'amount' : f)).join(', ')}
+                .
+              </p>
+            )}
+            {captureHint && <p className="formhint">{captureHint}</p>}
+            <div className="row">
+              <label>
+                Merchant
+                {uncertain.includes('merchant') ? ' · Needs review' : ''}
+                <input
+                  required
+                  maxLength={100}
+                  value={merchant}
+                  placeholder={
+                    fieldHints.merchant ||
+                    (uncertain.includes('merchant') ? 'Confirm the merchant name' : undefined)
+                  }
+                  onChange={(e) => {
+                    markTouched('merchant');
+                    setMerchant(e.target.value);
+                  }}
+                  style={uncertain.includes('merchant') ? { borderColor: '#c4a35a' } : undefined}
+                />
+              </label>
+              <label>
+                Amount
+                {uncertain.includes('total') ? ' · Needs review' : ''}
+                <input
+                  type="number"
+                  min={0.01}
+                  step={0.01}
+                  required
+                  value={amount}
+                  placeholder={
+                    fieldHints.total ||
+                    (uncertain.includes('total') ? 'Confirm the final amount paid' : undefined)
+                  }
+                  onChange={(e) => {
+                    markTouched('amount');
+                    setAmount(e.target.value);
+                  }}
+                  style={uncertain.includes('total') ? { borderColor: '#c4a35a' } : undefined}
+                />
+              </label>
+            </div>
+            <div className="row">
+              <label>
+                Date
+                {uncertain.includes('date') ? ' · Needs review' : ''}
+                <input
+                  type="date"
+                  required
+                  value={date}
+                  aria-label={
+                    fieldHints.date ||
+                    (uncertain.includes('date') ? 'Confirm the purchase date' : 'Date')
+                  }
+                  onChange={(e) => {
+                    markTouched('date');
+                    setDate(e.target.value);
+                  }}
+                  style={uncertain.includes('date') ? { borderColor: '#c4a35a' } : undefined}
+                />
+              </label>
+              <label>
+                Currency
+                <select value={currency} onChange={(e) => setCurrency(e.target.value)}>
+                  <option value="USD">USD</option>
+                  <option value="CAD">CAD</option>
+                  <option value="EUR">EUR</option>
+                  <option value="GBP">GBP</option>
+                </select>
+              </label>
+            </div>
+            <label>
+              Purpose / notes
+              <textarea
+                rows={2}
+                maxLength={1000}
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Optional — helps suggestions"
+              />
+            </label>
+            <div className="suggestion">
+              <strong>✧ {suggestion.label}</strong>
+              {suggestion.reason}
+              <div className="ruleline">
+                {suggestion.category} · {suggestion.ruleId} {suggestion.ruleVersion}
+                {' · '}Eligible % is set when you review — not from OCR
+              </div>
+            </div>
+            {records.filter((r) => !r.receipt).length > 0 && (
+              <label>
+                Match an existing expense instead?
+                <select value={matchId} onChange={(e) => setMatchId(e.target.value)}>
+                  <option value="">Create a new expense from this receipt</option>
+                  {records
+                    .filter((r) => !r.receipt)
+                    .slice(0, 40)
+                    .map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.merchant} · {r.date} · {r.amount}
+                      </option>
+                    ))}
+                </select>
+              </label>
+            )}
+            <div className="inlinebuttons">
+              <button
+                type="button"
+                className="btn secondary"
+                onClick={() => {
+                  setPhase('pick');
+                  setPipeline('idle');
+                  setStatusMsg('');
+                  setCaptureHint('');
+                }}
+              >
+                Replace photo
+              </button>
+            </div>
+          </>
+        )}
+
+        {error && (
+          <div className="formerror" role="alert">
+            {error}
+          </div>
+        )}
+        <div className="dialogactions">
+          <button type="button" className="btn secondary" onClick={onClose}>
+            Cancel
+          </button>
+          {phase === 'review' && (
+            <button className="btn" type="submit" disabled={busy}>
+              {busy ? 'Saving…' : matchId ? 'Attach to match' : 'Save expense'}
+            </button>
+          )}
+        </div>
+      </form>
+    </dialog>
+  );
+}

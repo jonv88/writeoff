@@ -1,0 +1,352 @@
+{
+  "label": "before",
+  "version": "receipt-reliability-2026.11.04",
+  "generatedAt": "2026-11-04T04:00:11.744Z",
+  "n": 11,
+  "all": {
+    "merchant": {
+      "correct": 7,
+      "incorrect": 0,
+      "blank": 4,
+      "correct_blank": 0,
+      "n": 11,
+      "accuracy_among_fills": 1,
+      "correct_including_blank_ok": 0.6363636363636364,
+      "incorrect_rate": 0,
+      "blank_when_expected_rate": 0.36363636363636365
+    },
+    "date": {
+      "correct": 11,
+      "incorrect": 0,
+      "blank": 0,
+      "correct_blank": 0,
+      "n": 11,
+      "accuracy_among_fills": 1,
+      "correct_including_blank_ok": 1,
+      "incorrect_rate": 0,
+      "blank_when_expected_rate": 0
+    },
+    "total": {
+      "correct": 2,
+      "incorrect": 9,
+      "blank": 0,
+      "correct_blank": 0,
+      "n": 11,
+      "accuracy_among_fills": 0.18181818181818182,
+      "correct_including_blank_ok": 0.18181818181818182,
+      "incorrect_rate": 0.8181818181818182,
+      "blank_when_expected_rate": 0
+    }
+  },
+  "tune": {
+    "merchant": {
+      "correct": 4,
+      "incorrect": 0,
+      "blank": 2,
+      "correct_blank": 0,
+      "n": 6,
+      "accuracy_among_fills": 1,
+      "correct_including_blank_ok": 0.6666666666666666,
+      "incorrect_rate": 0,
+      "blank_when_expected_rate": 0.3333333333333333
+    },
+    "date": {
+      "correct": 6,
+      "incorrect": 0,
+      "blank": 0,
+      "correct_blank": 0,
+      "n": 6,
+      "accuracy_among_fills": 1,
+      "correct_including_blank_ok": 1,
+      "incorrect_rate": 0,
+      "blank_when_expected_rate": 0
+    },
+    "total": {
+      "correct": 1,
+      "incorrect": 5,
+      "blank": 0,
+      "correct_blank": 0,
+      "n": 6,
+      "accuracy_among_fills": 0.16666666666666666,
+      "correct_including_blank_ok": 0.16666666666666666,
+      "incorrect_rate": 0.8333333333333334,
+      "blank_when_expected_rate": 0
+    }
+  },
+  "holdout": {
+    "merchant": {
+      "correct": 3,
+      "incorrect": 0,
+      "blank": 2,
+      "correct_blank": 0,
+      "n": 5,
+      "accuracy_among_fills": 1,
+      "correct_including_blank_ok": 0.6,
+      "incorrect_rate": 0,
+      "blank_when_expected_rate": 0.4
+    },
+    "date": {
+      "correct": 5,
+      "incorrect": 0,
+      "blank": 0,
+      "correct_blank": 0,
+      "n": 5,
+      "accuracy_among_fills": 1,
+      "correct_including_blank_ok": 1,
+      "incorrect_rate": 0,
+      "blank_when_expected_rate": 0
+    },
+    "total": {
+      "correct": 1,
+      "incorrect": 4,
+      "blank": 0,
+      "correct_blank": 0,
+      "n": 5,
+      "accuracy_among_fills": 0.2,
+      "correct_including_blank_ok": 0.2,
+      "incorrect_rate": 0.8,
+      "blank_when_expected_rate": 0
+    }
+  },
+  "rows": [
+    {
+      "id": "text-acme-balance",
+      "split": "tune",
+      "expected": {
+        "merchant": "ACME",
+        "date": "2026-11-02",
+        "total": 25.96
+      },
+      "got": {
+        "merchant": "ACME",
+        "date": "2026-11-02",
+        "total": 14.98,
+        "fieldHints": null,
+        "uncertainFields": []
+      },
+      "scores": {
+        "merchant": "correct",
+        "date": "correct",
+        "total": "incorrect"
+      }
+    },
+    {
+      "id": "text-restaurant-tip",
+      "split": "tune",
+      "expected": {
+        "merchant": "Riverbend Bistro",
+        "date": "2026-11-03",
+        "total": 29.3
+      },
+      "got": {
+        "merchant": null,
+        "date": "2026-11-03",
+        "total": 22.5,
+        "fieldHints": null,
+        "uncertainFields": [
+          "merchant"
+        ]
+      },
+      "scores": {
+        "merchant": "blank",
+        "date": "correct",
+        "total": "incorrect"
+      }
+    },
+    {
+      "id": "text-discount-grand",
+      "split": "tune",
+      "expected": {
+        "merchant": "NORTHSIDE HARDWARE",
+        "date": "2026-11-01",
+        "total": 25.37
+      },
+      "got": {
+        "merchant": "Northside Hardware",
+        "date": "2026-11-01",
+        "total": 23.49,
+        "fieldHints": null,
+        "uncertainFields": []
+      },
+      "scores": {
+        "merchant": "correct",
+        "date": "correct",
+        "total": "incorrect"
+      }
+    },
+    {
+      "id": "text-savings-larger",
+      "split": "tune",
+      "expected": {
+        "merchant": "Greenfield Foods",
+        "date": "2026-11-02",
+        "total": 23.76
+      },
+      "got": {
+        "merchant": "Greenfield Foods",
+        "date": "2026-11-02",
+        "total": 22,
+        "fieldHints": null,
+        "uncertainFields": []
+      },
+      "scores": {
+        "merchant": "correct",
+        "date": "correct",
+        "total": "incorrect"
+      }
+    },
+    {
+      "id": "text-coffee",
+      "split": "tune",
+      "expected": {
+        "merchant": "DEMO COFFEE CO",
+        "date": "2026-10-21",
+        "total": 4.9
+      },
+      "got": {
+        "merchant": "DEMO COFFEE CO",
+        "date": "2026-10-21",
+        "total": 4.9,
+        "fieldHints": null,
+        "uncertainFields": []
+      },
+      "scores": {
+        "merchant": "correct",
+        "date": "correct",
+        "total": "correct"
+      }
+    },
+    {
+      "id": "text-no-total-label",
+      "split": "tune",
+      "expected": {
+        "merchant": "Corner Newsstand",
+        "date": "2026-11-03",
+        "total": null
+      },
+      "got": {
+        "merchant": null,
+        "date": "2026-11-03",
+        "total": 5.99,
+        "fieldHints": null,
+        "uncertainFields": [
+          "merchant"
+        ]
+      },
+      "scores": {
+        "merchant": "blank",
+        "date": "correct",
+        "total": "incorrect"
+      }
+    },
+    {
+      "id": "text-walmart-holdout",
+      "split": "holdout",
+      "expected": {
+        "merchant": "Walmart",
+        "date": "2026-11-01",
+        "total": 19.9
+      },
+      "got": {
+        "merchant": "Walmart",
+        "date": "2026-11-01",
+        "total": 8.5,
+        "fieldHints": null,
+        "uncertainFields": []
+      },
+      "scores": {
+        "merchant": "correct",
+        "date": "correct",
+        "total": "incorrect"
+      }
+    },
+    {
+      "id": "text-balance-due-holdout",
+      "split": "holdout",
+      "expected": {
+        "merchant": "Maple Street Cafe",
+        "date": "2026-11-04",
+        "total": 20.78
+      },
+      "got": {
+        "merchant": "Maple Street Cafe",
+        "date": "2026-11-04",
+        "total": 16,
+        "fieldHints": null,
+        "uncertainFields": []
+      },
+      "scores": {
+        "merchant": "correct",
+        "date": "correct",
+        "total": "incorrect"
+      }
+    },
+    {
+      "id": "text-digital-invoice-holdout",
+      "split": "holdout",
+      "expected": {
+        "merchant": "Oak & Pine Supply",
+        "date": "2026-10-30",
+        "total": 21.6
+      },
+      "got": {
+        "merchant": null,
+        "date": "2026-10-30",
+        "total": 20,
+        "fieldHints": null,
+        "uncertainFields": [
+          "merchant"
+        ]
+      },
+      "scores": {
+        "merchant": "blank",
+        "date": "correct",
+        "total": "incorrect"
+      }
+    },
+    {
+      "id": "text-conflicting-holdout",
+      "split": "holdout",
+      "expected": {
+        "merchant": "Harbor Market",
+        "date": "2026-11-02",
+        "total": null
+      },
+      "got": {
+        "merchant": "Harbor Market",
+        "date": "2026-11-02",
+        "total": 12.5,
+        "fieldHints": null,
+        "uncertainFields": []
+      },
+      "scores": {
+        "merchant": "correct",
+        "date": "correct",
+        "total": "incorrect"
+      }
+    },
+    {
+      "id": "text-unfamiliar-no-alias",
+      "split": "holdout",
+      "expected": {
+        "merchant": "Brightside Pet Supply",
+        "date": "2026-11-03",
+        "total": 34.56
+      },
+      "got": {
+        "merchant": null,
+        "date": "2026-11-03",
+        "total": 34.56,
+        "fieldHints": null,
+        "uncertainFields": [
+          "merchant"
+        ]
+      },
+      "scores": {
+        "merchant": "blank",
+        "date": "correct",
+        "total": "correct"
+      }
+    }
+  ]
+}

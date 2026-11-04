@@ -1,0 +1,334 @@
+{
+  "label": "after-images",
+  "version": "receipt-reliability-2026.11.04",
+  "engine": "tesseract.js",
+  "generatedAt": "2026-11-04T04:03:13.296Z",
+  "n": 10,
+  "all": {
+    "merchant": {
+      "correct": 10,
+      "incorrect": 0,
+      "blank": 0,
+      "correct_blank": 0,
+      "n": 10,
+      "accuracy_among_fills": 1,
+      "correct_including_blank_ok": 1,
+      "incorrect_rate": 0,
+      "blank_when_expected_rate": 0
+    },
+    "date": {
+      "correct": 9,
+      "incorrect": 0,
+      "blank": 1,
+      "correct_blank": 0,
+      "n": 10,
+      "accuracy_among_fills": 1,
+      "correct_including_blank_ok": 0.9,
+      "incorrect_rate": 0,
+      "blank_when_expected_rate": 0.1
+    },
+    "total": {
+      "correct": 7,
+      "incorrect": 0,
+      "blank": 1,
+      "correct_blank": 2,
+      "n": 10,
+      "accuracy_among_fills": 1,
+      "correct_including_blank_ok": 0.9,
+      "incorrect_rate": 0,
+      "blank_when_expected_rate": 0.1
+    }
+  },
+  "tune": {
+    "merchant": {
+      "correct": 6,
+      "incorrect": 0,
+      "blank": 0,
+      "correct_blank": 0,
+      "n": 6,
+      "accuracy_among_fills": 1,
+      "correct_including_blank_ok": 1,
+      "incorrect_rate": 0,
+      "blank_when_expected_rate": 0
+    },
+    "date": {
+      "correct": 6,
+      "incorrect": 0,
+      "blank": 0,
+      "correct_blank": 0,
+      "n": 6,
+      "accuracy_among_fills": 1,
+      "correct_including_blank_ok": 1,
+      "incorrect_rate": 0,
+      "blank_when_expected_rate": 0
+    },
+    "total": {
+      "correct": 4,
+      "incorrect": 0,
+      "blank": 1,
+      "correct_blank": 1,
+      "n": 6,
+      "accuracy_among_fills": 1,
+      "correct_including_blank_ok": 0.8333333333333334,
+      "incorrect_rate": 0,
+      "blank_when_expected_rate": 0.16666666666666666
+    }
+  },
+  "holdout": {
+    "merchant": {
+      "correct": 4,
+      "incorrect": 0,
+      "blank": 0,
+      "correct_blank": 0,
+      "n": 4,
+      "accuracy_among_fills": 1,
+      "correct_including_blank_ok": 1,
+      "incorrect_rate": 0,
+      "blank_when_expected_rate": 0
+    },
+    "date": {
+      "correct": 3,
+      "incorrect": 0,
+      "blank": 1,
+      "correct_blank": 0,
+      "n": 4,
+      "accuracy_among_fills": 1,
+      "correct_including_blank_ok": 0.75,
+      "incorrect_rate": 0,
+      "blank_when_expected_rate": 0.25
+    },
+    "total": {
+      "correct": 3,
+      "incorrect": 0,
+      "blank": 0,
+      "correct_blank": 1,
+      "n": 4,
+      "accuracy_among_fills": 1,
+      "correct_including_blank_ok": 1,
+      "incorrect_rate": 0,
+      "blank_when_expected_rate": 0
+    }
+  },
+  "rows": [
+    {
+      "id": "gt-acme-balance",
+      "split": "tune",
+      "kind": "chain_grocery_phone_shadow_angle",
+      "ocrPreview": "ACME Store #1856 GROCERY MILK 25 3.49 BREAD 2.99 PRODUCE 8.50 YOU SAVED 12.00 SUBTOTAL 14.98 TAX 1.20 BALANCE 25.96 VISA 25.96 11/02/26 18:p4 Thank yau for shopping Acme! acmemarkets . com",
+      "confidence": 86,
+      "expected": {
+        "merchant": "ACME",
+        "date": "2026-11-02",
+        "total": 25.96
+      },
+      "got": {
+        "merchant": "ACME",
+        "date": "2026-11-02",
+        "total": 25.96
+      },
+      "scores": {
+        "merchant": "correct",
+        "date": "correct",
+        "total": "correct"
+      }
+    },
+    {
+      "id": "gt-restaurant-tip",
+      "split": "tune",
+      "kind": "independent_restaurant_tip_phone_crop",
+      "ocrPreview": "PE ———— Riverbend Bistro Table 4 Entree iE ot Drink 458 SUBTOTAL 22.58 — 1.80 = 5.00 — 29.30 AMOUNT PATD 250 | nov 3, 2026 19:22 =——————",
+      "confidence": 70,
+      "expected": {
+        "merchant": "Riverbend Bistro",
+        "date": "2026-11-03",
+        "total": 29.3
+      },
+      "got": {
+        "merchant": "Riverbend Bistro",
+        "date": "2026-11-03",
+        "total": null
+      },
+      "scores": {
+        "merchant": "correct",
+        "date": "correct",
+        "total": "blank"
+      }
+    },
+    {
+      "id": "gt-discount-grand-total",
+      "split": "tune",
+      "kind": "independent_discount_multi_total",
+      "ocrPreview": "NORTHSIDE HARDWARE Hammer 24.99 Nails 3.50 DISCOUNT -5.00 SUBTOTAL 23.49 TAX 1.88 GRAND TOTAL 25.37 11/01/2026 10:15 Thank you for shopping at Northside Hardware",
+      "confidence": 93,
+      "expected": {
+        "merchant": "NORTHSIDE HARDWARE",
+        "date": "2026-11-01",
+        "total": 25.37
+      },
+      "got": {
+        "merchant": "Northside Hardware",
+        "date": "2026-11-01",
+        "total": 25.37
+      },
+      "scores": {
+        "merchant": "correct",
+        "date": "correct",
+        "total": "correct"
+      }
+    },
+    {
+      "id": "gt-walmart-chain",
+      "split": "holdout",
+      "kind": "chain_dim_angle",
+      "ocrPreview": "Walmart Stare #138 DELT Sandwich 6.50 Chips 2.00 SUBTOTAL 8.50 TAX 0.68 TOTAL 19.90 (includes prepaid gift remaining) 11/61/2026 13:30 ivi. walmart . com",
+      "confidence": 86,
+      "expected": {
+        "merchant": "Walmart",
+        "date": "2026-11-01",
+        "total": 19.9
+      },
+      "got": {
+        "merchant": "Walmart",
+        "date": null,
+        "total": 19.9
+      },
+      "scores": {
+        "merchant": "correct",
+        "date": "blank",
+        "total": "correct"
+      }
+    },
+    {
+      "id": "gt-coffee-digital",
+      "split": "tune",
+      "kind": "independent_digital_clean",
+      "ocrPreview": "DEMO COFFEE CO 123 Main St Latte 4.50 TOTAL USD $4.90 10/21/2026",
+      "confidence": 95,
+      "expected": {
+        "merchant": "DEMO COFFEE CO",
+        "date": "2026-10-21",
+        "total": 4.9
+      },
+      "got": {
+        "merchant": "DEMO COFFEE CO",
+        "date": "2026-10-21",
+        "total": 4.9
+      },
+      "scores": {
+        "merchant": "correct",
+        "date": "correct",
+        "total": "correct"
+      }
+    },
+    {
+      "id": "gt-balance-due-cafe",
+      "split": "holdout",
+      "kind": "independent_balance_due_phone",
+      "ocrPreview": "esses Maple street cafe Soup 7.00 salad 9.00 SUBTOTAL 16.00 TAX 1.28 TP 3.50 BALANCE DUE 20.78 | purchase date 11/04/2026 —=——————",
+      "confidence": 79,
+      "expected": {
+        "merchant": "Maple Street Cafe",
+        "date": "2026-11-04",
+        "total": 20.78
+      },
+      "got": {
+        "merchant": "Maple street cafe",
+        "date": "2026-11-04",
+        "total": 20.78
+      },
+      "scores": {
+        "merchant": "correct",
+        "date": "correct",
+        "total": "correct"
+      }
+    },
+    {
+      "id": "gt-savings-larger-than-total",
+      "split": "tune",
+      "kind": "savings_larger_than_paid",
+      "ocrPreview": "Greenfield Foods OUR Favorite Local Market Items 46.00 YOU SAVED 48.00 SUBTOTAL 22.00 TAX 1.76 AMOUNT DUE 23.76 11/02/26 09:11 Thank you for shopping at Greenfield Foods",
+      "confidence": 93,
+      "expected": {
+        "merchant": "Greenfield Foods",
+        "date": "2026-11-02",
+        "total": 23.76
+      },
+      "got": {
+        "merchant": "Greenfield Foods",
+        "date": "2026-11-02",
+        "total": 23.76
+      },
+      "scores": {
+        "merchant": "correct",
+        "date": "correct",
+        "total": "correct"
+      }
+    },
+    {
+      "id": "gt-digital-invoice",
+      "split": "holdout",
+      "kind": "digital_invoice_pdf_like",
+      "ocrPreview": "Oak & Pine Supply Invoice #4412 Widget A 12.00 Widget B 8.00 Subtotal 20.00 Sales Tax 1.60 Amount Paid 21.60 Transaction date: 2026-10-30",
+      "confidence": 92,
+      "expected": {
+        "merchant": "Oak & Pine Supply",
+        "date": "2026-10-30",
+        "total": 21.6
+      },
+      "got": {
+        "merchant": "Oak & Pine Supply",
+        "date": "2026-10-30",
+        "total": 21.6
+      },
+      "scores": {
+        "merchant": "correct",
+        "date": "correct",
+        "total": "correct"
+      }
+    },
+    {
+      "id": "gt-no-total-label",
+      "split": "tune",
+      "kind": "no_labeled_total_expect_blank",
+      "ocrPreview": "= | Corner Newsstand Magazine Sn Candy — Water — 11/03/2026 | BE",
+      "confidence": 59,
+      "expected": {
+        "merchant": "Corner Newsstand",
+        "date": "2026-11-03",
+        "total": null
+      },
+      "got": {
+        "merchant": "Corner Newsstand",
+        "date": "2026-11-03",
+        "total": null
+      },
+      "scores": {
+        "merchant": "correct",
+        "date": "correct",
+        "total": "correct_blank"
+      }
+    },
+    {
+      "id": "gt-conflicting-totals",
+      "split": "holdout",
+      "kind": "conflicting_totals_expect_blank_or_careful",
+      "ocrPreview": "Harbor Market Produce 10.00 TOTAL 12.50 GRAND TOTAL 15.00 AMOUNT DUE 11.00 11/02/2026 12:00",
+      "confidence": 94,
+      "expected": {
+        "merchant": "Harbor Market",
+        "date": "2026-11-02",
+        "total": null
+      },
+      "got": {
+        "merchant": "Harbor Market",
+        "date": "2026-11-02",
+        "total": null
+      },
+      "scores": {
+        "merchant": "correct",
+        "date": "correct",
+        "total": "correct_blank"
+      }
+    }
+  ]
+}

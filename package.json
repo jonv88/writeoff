@@ -1,0 +1,42 @@
+{
+  "name": "writeoff",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "lint": "oxlint",
+    "preview": "vite preview",
+    "reference:preview": "python3 -m http.server 8080 --directory reference-template",
+    "verify:template": "node scripts/verify-template-lock.mjs",
+    "test:suggestions": "node scripts/test-suggestions.mjs",
+    "verify:receipt-flow": "node scripts/verify-receipt-flow.mjs",
+    "test:ocr-parse": "node scripts/test-browser-ocr-parse.mjs",
+    "eval:receipt-reliability": "node scripts/eval-receipt-reliability.mjs",
+    "migrations:print": "bash scripts/apply-migrations.sh",
+    "cap:sync": "npm run build && npx cap sync ios",
+    "typecheck": "tsc -b --pretty false"
+  },
+  "dependencies": {
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/camera": "^8.2.6",
+    "@capacitor/cli": "^8.6.0",
+    "@capacitor/core": "^8.6.0",
+    "@capacitor/filesystem": "^8.1.5",
+    "@capacitor/ios": "^8.6.0",
+    "@supabase/supabase-js": "^2.118.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "tesseract.js": "^5.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "oxlint": "^1.89.0",
+    "typescript": "~7.0.2",
+    "vite": "^8.3.5"
+  }
+}
