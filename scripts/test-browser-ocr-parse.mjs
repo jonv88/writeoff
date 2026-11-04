@@ -10,7 +10,11 @@ try {
     parseDateFromText,
     parseTotalFromText,
     isSuspiciousMerchantName,
+    reconcileReceiptOcrText,
+    merchantFromThankYou,
   } = await server.ssrLoadModule('/src/lib/ocr/browserOcr.ts');
+  const { detectReceiptMimeFromMagicBytes, validateReceiptFileSelection } =
+    await server.ssrLoadModule('/src/lib/ocr/importFileValidation.ts');
   const fixtures = [
     {
       name: 'ACME-style footer and short transaction date',
@@ -98,7 +102,25 @@ try {
   assert.equal(parseDateFromText('Valid thru 12/31/2026\n2026-11-02'), '2026-11-02');
   assert.equal(parseDateFromText('11/02/26\n11/03/26'), null);
   assert.equal(parseDateFromText('Nov 31, 2026'), null);
-  console.log('PASS header geometry, date validation, total evidence, merchant confidence');
+
+  // RHEV-inspired post-OCR label reconcile (blank-over-guess still applies).
+  assert.match(reconcileReceiptOcrText('AMOUNT PATD 29.30'), /AMOUNT paid 29.30/i);
+  assert.equal(parseTotalFromText('TIP 5.00\nAMOUNT PATD 29.30').total, 29.3);
+  assert.equal(parseTotalFromText('**** BA L AN CE 25.96').total, 25.96);
+  assert.equal(merchantFromThankYou('Thank for shopping Acme!\nacmemarkets.com'), 'ACME');
+
+  // Magic-byte JPEG gate
+  const jpeg = Uint8Array.from([0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0]);
+  assert.equal(detectReceiptMimeFromMagicBytes(jpeg), 'image/jpeg');
+  const fake = {
+    name: 'receipt.exe',
+    type: 'application/octet-stream',
+    size: 8,
+  };
+  assert.equal(validateReceiptFileSelection(fake, jpeg).ok, true);
+  assert.equal(validateReceiptFileSelection(fake, jpeg).mime, 'image/jpeg');
+
+  console.log('PASS header geometry, date validation, total evidence, merchant confidence, reconcile');
 } finally {
   await server.close();
 }

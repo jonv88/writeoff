@@ -3,6 +3,10 @@
  * the browser supports it, and downscale large images while keeping text readable.
  * $0 / no API keys. Never invents OCR fields.
  */
+import {
+  readFileHeaderBytes,
+  validateReceiptFileSelection,
+} from './importFileValidation';
 
 export type PhotoPrepResult =
   | {
@@ -115,6 +119,24 @@ export async function prepareReceiptPhoto(
   file: File,
   onProgress?: (msg: string) => void,
 ): Promise<PhotoPrepResult> {
+  // RHEV-style allowlist + magic-byte gate before decode/resize.
+  let header: Uint8Array | null = null;
+  try {
+    header = await readFileHeaderBytes(file);
+  } catch {
+    header = null;
+  }
+  const gate = validateReceiptFileSelection(file, header);
+  if (!gate.ok) {
+    return {
+      ok: false,
+      message: `${gate.error} Enter details manually if needed.`,
+      attachFile: file.size > 0 && file.size <= MAX_INPUT_BYTES ? file : null,
+      previewUrl: file.size > 0 ? URL.createObjectURL(file) : null,
+      unscannable: true,
+    };
+  }
+
   if (file.size > MAX_INPUT_BYTES) {
     return {
       ok: false,
@@ -125,7 +147,7 @@ export async function prepareReceiptPhoto(
     };
   }
 
-  if (isPdf(file)) {
+  if (isPdf(file) || gate.mime === 'application/pdf') {
     const previewUrl = URL.createObjectURL(file);
     return {
       ok: false,
@@ -137,7 +159,7 @@ export async function prepareReceiptPhoto(
     };
   }
 
-  if (!isLikelyImage(file)) {
+  if (!isLikelyImage(file) && !String(gate.mime).startsWith('image/')) {
     return {
       ok: false,
       message: 'Choose a receipt photo (JPEG/PNG/WebP) or enter details manually.',

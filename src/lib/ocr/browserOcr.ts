@@ -7,9 +7,36 @@ import type { OcrExtraction } from './adapter';
 import { US_MERCHANTS } from './usMerchants';
 import { prepareReceiptPhoto } from './photoPrep';
 
-const VERSION = 'browser-tesseract-2026.11.04b';
+const VERSION = 'browser-tesseract-2026.11.04c';
 
 const CUSTOMER_REVIEW_MSG = 'Review the details before saving.';
+
+/**
+ * Deterministic post-OCR text reconcile (RHEV-inspired: model/OCR output ≠ final fields).
+ * Fixes common Tesseract label garble before evidence-gated parsers run.
+ * Does not invent amounts — only normalizes labels so evidence matchers can fire.
+ */
+export function reconcileReceiptOcrText(text: string): string {
+  return text
+    .split(/\r?\n/)
+    .map((line) => {
+      let l = line;
+      // Amount-paid / balance / grand-total OCR near-misses (keep the money tokens).
+      l = l.replace(/\bamount\s*pa[ilt]d\b/gi, 'AMOUNT paid');
+      l = l.replace(/\bam+ou?nt\s*pa[ilt]d\b/gi, 'amount paid');
+      l = l.replace(/\bbal+a?nce\s*due\b/gi, 'balance due');
+      l = l.replace(/\bba[\s-]*l[\s-]*a?n[\s-]*c[\s-]*e\b/gi, 'balance');
+      l = l.replace(/\bgran[d0]\s*tot(?:al|ai|a1)\b/gi, 'grand total');
+      l = l.replace(/\bfinal\s*tot(?:al|ai|a1)\b/gi, 'final total');
+      l = l.replace(/\btot(?:al|ai|a1)\s*due\b/gi, 'total due');
+      // Bare TOTAL OCR: TOTAI / T0TAL / Hoa (rare) left alone unless clearly TOTAL*
+      l = l.replace(/\bt0tal\b/gi, 'total');
+      l = l.replace(/\btotai\b/gi, 'total');
+      l = l.replace(/\btota1\b/gi, 'total');
+      return l;
+    })
+    .join('\n');
+}
 
 export type FieldHints = {
   merchant?: string;
@@ -122,7 +149,7 @@ function moneyValuesOnLine(line: string): number[] {
 }
 
 export function parseTotalFromText(text: string): { total: number | null; currency: string } {
-  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const lines = reconcileReceiptOcrText(text).split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   type Hit = { value: number; priority: number; kind: string; lineIndex: number };
   const hits: Hit[] = [];
 
@@ -260,22 +287,28 @@ export function isSloganLine(line: string): boolean {
 
 /** Footer “Thank you for shopping …” often carries the real store name. */
 export function merchantFromThankYou(text: string): string | null {
+  const reconciled = reconcileReceiptOcrText(text);
   const patterns = [
     /thank(?:s|\s*you)?\s+for\s+shopping\s+(?:at\s+)?([^\n.!?]{2,60})/i,
     /thank(?:s|\s*you)?\s+for\s+visiting\s+(?:at\s+)?([^\n.!?]{2,60})/i,
     /thanks\s+for\s+choosing\s+([^\n.!?]{2,60})/i,
   ];
   for (const re of patterns) {
-    const m = text.match(re);
+    const m = reconciled.match(re);
     if (!m) continue;
     let cand = normalizeMerchantLine(m[1]);
-    // Drop trailing "today" / "with us"
+    // Drop trailing "today" / "with us" / OCR junk after the name
     cand = cand.replace(/\b(today|with\s+us|again)\b/gi, '').replace(/\s+/g, ' ').trim();
-    if (!cand || isGarbledMerchant(cand) || isSloganLine(cand) || isSuspiciousMerchantName(cand)) {
-      continue;
-    }
-    if (!cleanMerchant(cand)) continue;
-    return cand.slice(0, 100);
+    if (!cand || isSloganLine(cand) || isSuspiciousMerchantName(cand)) continue;
+    // Thank-you labels make short names (e.g. "Acme") trustworthy even when
+    // the generic garbled heuristic would reject compact Title Case tokens.
+    const cleaned =
+      cleanMerchant(cand) ??
+      (!isGarbledMerchant(cand) || /^[A-Za-z]{2,40}$/.test(cand)
+        ? cand.slice(0, 100)
+        : null);
+    if (!cleaned || isSloganLine(cleaned)) continue;
+    return canonicalMerchant(cleaned);
   }
   return null;
 }
@@ -424,11 +457,13 @@ export function parseReceiptText(text: string, confidencePct: number,
   lines?: ReceiptLine[],
   imageHeight?: number,
 ): OcrExtraction {
-  const merchantDetails = parseMerchantDetails(text, lines, imageHeight);
+  // Reconcile OCR label noise once; parsers remain evidence-gated (blank > guess).
+  const reconciled = reconcileReceiptOcrText(text);
+  const merchantDetails = parseMerchantDetails(reconciled, lines, imageHeight);
   // Merchant confidence is independent of date/amount success.
   let merchant = merchantDetails.merchant;
-  const date = parseDateFromText(text);
-  const { total, currency } = parseTotalFromText(text);
+  const date = parseDateFromText(reconciled);
+  const { total, currency } = parseTotalFromText(reconciled);
   const uncertain: string[] = [];
   if (!merchant) uncertain.push('merchant');
   else if (merchantDetails.weak) uncertain.push('merchant');
