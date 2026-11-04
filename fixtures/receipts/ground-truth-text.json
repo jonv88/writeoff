@@ -1,0 +1,93 @@
+{
+  "version": "receipt-reliability-2026.11.04",
+  "fixtures": [
+    {
+      "id": "text-acme-balance",
+      "split": "tune",
+      "text": "U a CM .\nOUR Favorite Local Super marke\nStore 1856\nGROC HONEDIBLE\nMILK 3.49\nBREAD 2.99\nYOU SAVED 12.00\nSUBTOTAL 14.98\nTAX 1.20\nBALANCE 25.96\nVISA 25.96\n11 / 02 / 26 18:04\nThank you for shopping Acme!\nacmemarkets.com",
+      "merchant": "ACME",
+      "date": "2026-11-02",
+      "total": 25.96
+    },
+    {
+      "id": "text-restaurant-tip",
+      "split": "tune",
+      "text": "Riverbend Bistro\nTable 4\nEntree 18.00\nDrink 4.50\nSUBTOTAL 22.50\nTAX 1.80\nTIP 5.00\nTOTAL 29.30\nAMOUNT PAID 29.30\nNov 3, 2026 19:22",
+      "merchant": "Riverbend Bistro",
+      "date": "2026-11-03",
+      "total": 29.3
+    },
+    {
+      "id": "text-discount-grand",
+      "split": "tune",
+      "text": "NORTHSIDE HARDWARE\nHammer 24.99\nNails 3.50\nDISCOUNT -5.00\nSUBTOTAL 23.49\nTAX 1.88\nGRAND TOTAL 25.37\n11/01/2026 10:15\nThank you for shopping at Northside Hardware",
+      "merchant": "NORTHSIDE HARDWARE",
+      "date": "2026-11-01",
+      "total": 25.37
+    },
+    {
+      "id": "text-savings-larger",
+      "split": "tune",
+      "text": "Greenfield Foods\nOUR Favorite Local Market\nItems 40.00\nYOU SAVED 48.00\nSUBTOTAL 22.00\nTAX 1.76\nAMOUNT DUE 23.76\n11/02/26 09:11\nThank you for shopping at Greenfield Foods",
+      "merchant": "Greenfield Foods",
+      "date": "2026-11-02",
+      "total": 23.76
+    },
+    {
+      "id": "text-coffee",
+      "split": "tune",
+      "text": "DEMO COFFEE CO\n123 Main St\n10/21/2026\nLatte $4.50\nTOTAL USD $4.90",
+      "merchant": "DEMO COFFEE CO",
+      "date": "2026-10-21",
+      "total": 4.9
+    },
+    {
+      "id": "text-no-total-label",
+      "split": "tune",
+      "text": "Corner Newsstand\nMagazine 5.99\nCandy 1.25\nWater 2.00\n11/03/2026",
+      "merchant": "Corner Newsstand",
+      "date": "2026-11-03",
+      "total": null
+    },
+    {
+      "id": "text-walmart-holdout",
+      "split": "holdout",
+      "text": "W A L\nSTORE #138\nDELI\nSandwich 6.50\nChips 2.00\nSUBTOTAL 8.50\nTAX 0.68\nTOTAL 19.90\n11/01/2026 13:30\nVisit www.walmart.com",
+      "merchant": "Walmart",
+      "date": "2026-11-01",
+      "total": 19.9
+    },
+    {
+      "id": "text-balance-due-holdout",
+      "split": "holdout",
+      "text": "Maple Street Cafe\nSoup 7.00\nSalad 9.00\nSUBTOTAL 16.00\nTAX 1.28\nTIP 3.50\nBALANCE DUE 20.78\nPurchase date 11/04/2026",
+      "merchant": "Maple Street Cafe",
+      "date": "2026-11-04",
+      "total": 20.78
+    },
+    {
+      "id": "text-digital-invoice-holdout",
+      "split": "holdout",
+      "text": "Oak & Pine Supply\nInvoice #4412\nWidget A 12.00\nWidget B 8.00\nSubtotal 20.00\nSales Tax 1.60\nAmount Paid 21.60\nTransaction date: 2026-10-30",
+      "merchant": "Oak & Pine Supply",
+      "date": "2026-10-30",
+      "total": 21.6
+    },
+    {
+      "id": "text-conflicting-holdout",
+      "split": "holdout",
+      "text": "Harbor Market\nProduce 10.00\nTOTAL 12.50\nGRAND TOTAL 15.00\nAMOUNT DUE 11.00\n11/02/2026 12:00",
+      "merchant": "Harbor Market",
+      "date": "2026-11-02",
+      "total": null
+    },
+    {
+      "id": "text-unfamiliar-no-alias",
+      "split": "holdout",
+      "text": "Brightside Pet Supply\nDog food 32.00\nTax 2.56\nTOTAL 34.56\n11/03/2026 16:40",
+      "merchant": "Brightside Pet Supply",
+      "date": "2026-11-03",
+      "total": 34.56
+    }
+  ]
+}

@@ -7,9 +7,15 @@ import type { OcrExtraction } from './adapter';
 import { US_MERCHANTS } from './usMerchants';
 import { prepareReceiptPhoto } from './photoPrep';
 
-const VERSION = 'browser-tesseract-2026.11.03d';
+const VERSION = 'browser-tesseract-2026.11.04a';
 
 const CUSTOMER_REVIEW_MSG = 'Review the details before saving.';
+
+export type FieldHints = {
+  merchant?: string;
+  date?: string;
+  total?: string;
+};
 
 function base(
   partial: Partial<OcrExtraction> & Pick<OcrExtraction, 'status' | 'message'>,
@@ -79,32 +85,86 @@ export function parseDateFromText(text: string): string | null {
   return ranked[0] && ranked[0][1] !== ranked[1]?.[1] ? ranked[0][0] : null;
 }
 
-/** Prefer TOTAL / amount-due style lines; fall back to largest money-like number. */
+/**
+ * Extract final amount paid from labeled evidence only.
+ * No largest-number fallback — unlabeled or conflicting totals stay blank.
+ *
+ * Priority (higher wins). Word boundaries avoid matching SUBTOTAL as TOTAL.
+ * Position (later lines) breaks ties among equal-priority labels that agree.
+ */
+const AMOUNT_LABELS: { re: RegExp; priority: number; kind: string }[] = [
+  { re: /\bamount\s*paid\b/i, priority: 100, kind: 'amount_paid' },
+  { re: /\bbalance\s*due\b/i, priority: 95, kind: 'balance_due' },
+  { re: /\bamount\s*due\b/i, priority: 90, kind: 'amount_due' },
+  { re: /\bgrand\s*total\b/i, priority: 85, kind: 'grand_total' },
+  { re: /\bfinal\s*total\b/i, priority: 85, kind: 'final_total' },
+  { re: /\btotal\s*due\b/i, priority: 85, kind: 'total_due' },
+  // Bare TOTAL — SUBTOTAL lines are excluded by NON_TOTAL_LINE before matching.
+  { re: /\btotal\b(?!\s*(?:tax|items?|qty|quantity|savings?))/i, priority: 70, kind: 'total' },
+  { re: /\bbalance\b(?!\s*(?:forward|bf|brought))/i, priority: 65, kind: 'balance' },
+  { re: /\b(?:visa|mastercard|amex|discover|debit|credit)\b(?!.*\b(?:ending|xxxx|\*\*))/i, priority: 55, kind: 'tender' },
+];
+
+const NON_TOTAL_LINE =
+  /\b(?:sub\s*total|subtotal|tax|tip|gratuity|discount|coupon|you\s*saved|savings?|change|cash\s*back|deposit|refund|credit\s*applied|items?\s*total|qty|quantity)\b/i;
+
+const MONEY_ON_LINE = /(?:USD\s*)?\$?\s*(\d{1,6}(?:[.,]\d{2}))\b/gi;
+
+function moneyValuesOnLine(line: string): number[] {
+  const out: number[] = [];
+  MONEY_ON_LINE.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = MONEY_ON_LINE.exec(line))) {
+    const n = Number(m[1].replace(',', '.'));
+    if (Number.isFinite(n) && n > 0) out.push(n);
+  }
+  return out;
+}
+
 export function parseTotalFromText(text: string): { total: number | null; currency: string } {
   const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-  const moneyRe = /(?:USD\s*)?\$?\s*(\d{1,6}(?:[.,]\d{2}))\b/gi;
-  const labeled =
-    /(?:total|amount\s*due|balance|grand\s*total|visa|mastercard|paid)\D{0,24}(?:USD\s*)?\$?\s*(\d{1,6}(?:[.,]\d{2}))/i;
+  type Hit = { value: number; priority: number; kind: string; lineIndex: number };
+  const hits: Hit[] = [];
 
-  for (const line of lines) {
-    const m = line.match(labeled);
-    if (m) {
-      const n = Number(m[1].replace(',', '.'));
-      if (Number.isFinite(n) && n > 0) return { total: n, currency: 'USD' };
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (NON_TOTAL_LINE.test(line)) continue;
+    const values = moneyValuesOnLine(line);
+    if (!values.length) continue;
+    for (const label of AMOUNT_LABELS) {
+      if (!label.re.test(line)) continue;
+      // Prefer the rightmost money on a labeled total line (amount column).
+      const value = values[values.length - 1];
+      hits.push({ value, priority: label.priority, kind: label.kind, lineIndex: i });
+      break;
     }
   }
 
-  let best: number | null = null;
-  for (const line of lines) {
-    moneyRe.lastIndex = 0;
-    let m: RegExpExecArray | null;
-    while ((m = moneyRe.exec(line))) {
-      const n = Number(m[1].replace(',', '.'));
-      if (!Number.isFinite(n) || n <= 0) continue;
-      if (best == null || n >= best) best = n;
+  if (!hits.length) {
+    // No labeled final-amount evidence — leave blank (never invent from largest number).
+    return { total: null, currency: 'USD' };
+  }
+
+  hits.sort((a, b) => b.priority - a.priority || b.lineIndex - a.lineIndex);
+  const topPriority = hits[0].priority;
+  const top = hits.filter((h) => h.priority === topPriority);
+  const topValues = [...new Set(top.map((h) => h.value))];
+  if (topValues.length !== 1) {
+    // Same-priority labels disagree.
+    return { total: null, currency: 'USD' };
+  }
+
+  const finalish = hits.filter((h) => h.priority >= 65);
+  const finalishValues = [...new Set(finalish.map((h) => h.value))];
+  if (finalishValues.length > 1) {
+    // Conflicting TOTAL / GRAND TOTAL / AMOUNT DUE style labels.
+    // Only an explicit amount-paid / balance-due (priority >= 95) may override.
+    if (topPriority < 95) {
+      return { total: null, currency: 'USD' };
     }
   }
-  return { total: best, currency: 'USD' };
+
+  return { total: topValues[0], currency: 'USD' };
 }
 
 function normalizeMerchantLine(raw: string): string {
@@ -240,7 +300,7 @@ export function parseMerchantFromText(
     const position = positionedLines.find((line) => merchantKey(line.text) === merchantKey(raw));
     const prominent = position && imageHeight && position.bbox.y0 < imageHeight * 0.3 &&
       position.bbox.y1 - position.bbox.y0 >= imageHeight * 0.018 && position.confidence >= 55;
-    const businessName = /\b(?:co|inc|llc|market|shop|cafe|coffee|hardware|restaurant|bakery|pharmacy|foods|mart)\b/i.test(name);
+    const businessName = /\b(?:co|inc|llc|ltd|market|shop|cafe|coffee|bistro|diner|grill|kitchen|hardware|restaurant|bakery|pharmacy|foods|mart|supply|supplies|newsstand|bookstore|barbershop|studio|clinic)\b/i.test(name);
     return labeled || known || prominent || businessName
       ? [{ name: canonical, score: (known ? 8 : 0) + (labeled ? 7 : 0) +
         (prominent ? 5 : 0) + (businessName ? 3 : 0) + (6 - index) / 10 }]
@@ -264,6 +324,14 @@ export function formatOcrAmount(total: number): string {
   return total.toFixed(2);
 }
 
+export function fieldHintsFor(uncertain: string[]): FieldHints {
+  const hints: FieldHints = {};
+  if (uncertain.includes('merchant')) hints.merchant = 'Confirm the merchant name';
+  if (uncertain.includes('date')) hints.date = 'Confirm the purchase date';
+  if (uncertain.includes('total')) hints.total = 'Confirm the final amount paid';
+  return hints;
+}
+
 export function parseReceiptText(text: string, confidencePct: number,
   lines?: ReceiptLine[],
   imageHeight?: number,
@@ -275,13 +343,15 @@ export function parseReceiptText(text: string, confidencePct: number,
   if (!merchant) uncertain.push('merchant');
   if (!date) uncertain.push('date');
   if (total == null) uncertain.push('total');
-  // Low overall OCR confidence: keep filled values but flag for review
+  // Low overall OCR confidence: blank uncertain fields rather than keep shaky autofills.
   if (confidencePct < 55) {
+    // Keep values but require review prompts; do not invent replacements.
     if (merchant) uncertain.push('merchant');
     if (date) uncertain.push('date');
     if (total != null) uncertain.push('total');
   }
   const unique = [...new Set(uncertain)];
+  const hints = fieldHintsFor(unique);
   const preview = text.replace(/\s+/g, ' ').trim().slice(0, 280);
 
   if (!merchant && !date && total == null) {
@@ -291,6 +361,7 @@ export function parseReceiptText(text: string, confidencePct: number,
       confidence: confidencePct / 100,
       rawTextPreview: preview || undefined,
       uncertainFields: ['merchant', 'date', 'total'],
+      fieldHints: fieldHintsFor(['merchant', 'date', 'total']),
     });
   }
 
@@ -302,6 +373,7 @@ export function parseReceiptText(text: string, confidencePct: number,
     confidence: confidencePct / 100,
     rawTextPreview: preview || undefined,
     uncertainFields: unique,
+    fieldHints: Object.keys(hints).length ? hints : undefined,
     status: unique.length ? 'needs_details' : 'ready',
     message: CUSTOMER_REVIEW_MSG,
   });

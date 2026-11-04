@@ -11,6 +11,12 @@ import { getSupabase } from '../supabase';
 import { config, isSupabaseConfigured } from '../config';
 import { extractWithBrowserOcr, type BrowserOcrBundle } from './browserOcr';
 
+export interface OcrFieldHints {
+  merchant?: string;
+  date?: string;
+  total?: string;
+}
+
 export interface OcrExtraction {
   merchant: string | null;
   date: string | null;
@@ -22,6 +28,8 @@ export interface OcrExtraction {
   confidence: number;
   rawTextPreview?: string;
   uncertainFields: string[];
+  /** Specific review prompts for blank/uncertain fields (e.g. confirm final amount paid). */
+  fieldHints?: OcrFieldHints;
   status: 'ready' | 'needs_details' | 'failed' | 'blocked';
   message: string;
   version: string;
@@ -164,6 +172,11 @@ function normalize(data: Partial<OcrExtraction>): OcrExtraction {
   if (data.total == null || !Number.isFinite(Number(data.total))) uncertain.push('total');
   const unique = [...new Set(uncertain)];
   const status = (data.status || (unique.length ? 'needs_details' : 'ready')) as OcrExtraction['status'];
+  const fieldHints = data.fieldHints || {
+    ...(unique.includes('merchant') ? { merchant: 'Confirm the merchant name' } : {}),
+    ...(unique.includes('date') ? { date: 'Confirm the purchase date' } : {}),
+    ...(unique.includes('total') ? { total: 'Confirm the final amount paid' } : {}),
+  };
   return {
     merchant: data.merchant ?? null,
     date: data.date ?? null,
@@ -175,6 +188,7 @@ function normalize(data: Partial<OcrExtraction>): OcrExtraction {
     confidence: data.confidence ?? 0,
     rawTextPreview: data.rawTextPreview,
     uncertainFields: unique,
+    fieldHints: Object.keys(fieldHints).length ? fieldHints : undefined,
     status,
     message:
       data.message ||

@@ -40,6 +40,11 @@ export function SnapReceiptDialog({
   const [currency, setCurrency] = useState('USD');
   const [notes, setNotes] = useState('');
   const [uncertain, setUncertain] = useState<string[]>([]);
+  const [fieldHints, setFieldHints] = useState<{
+    merchant?: string;
+    date?: string;
+    total?: string;
+  }>({});
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [matchId, setMatchId] = useState<string>('');
@@ -66,6 +71,7 @@ export function SnapReceiptDialog({
       setCurrency('USD');
       setNotes('');
       setUncertain([]);
+      setFieldHints({});
       setError('');
       setMatchId('');
       setServerStoragePath(null);
@@ -98,10 +104,11 @@ export function SnapReceiptDialog({
     total: number | null;
     currency: string | null;
     uncertainFields: string[];
+    fieldHints?: { merchant?: string; date?: string; total?: string };
     status: string;
     message: string;
   }) {
-    // Only fill untouched fields. Missing OCR values stay blank — never invent.
+    // Only fill evidence-backed fields. Missing OCR values stay blank — never invent.
     if (!userTouched.current.merchant) {
       setMerchant(result.merchant?.trim() || '');
     }
@@ -123,7 +130,19 @@ export function SnapReceiptDialog({
     if (!userTouched.current.amount && result.total == null && !uncertainNext.includes('total')) {
       uncertainNext.push('total');
     }
-    setUncertain([...new Set(uncertainNext)]);
+    const uniqueUncertain = [...new Set(uncertainNext)];
+    setUncertain(uniqueUncertain);
+    setFieldHints({
+      merchant:
+        result.fieldHints?.merchant ||
+        (uniqueUncertain.includes('merchant') ? 'Confirm the merchant name' : undefined),
+      date:
+        result.fieldHints?.date ||
+        (uniqueUncertain.includes('date') ? 'Confirm the purchase date' : undefined),
+      total:
+        result.fieldHints?.total ||
+        (uniqueUncertain.includes('total') ? 'Confirm the final amount paid' : undefined),
+    });
 
     const filledAny = Boolean(result.merchant || result.date || result.total != null);
     if (filledAny && result.status !== 'failed') {
@@ -444,9 +463,14 @@ export function SnapReceiptDialog({
             {uncertain.length > 0 && (
               <p className="formhint">
                 <strong>Needs review:</strong>{' '}
-                {uncertain
-                  .map((f) => (f === 'total' ? 'amount' : f))
-                  .join(', ')}
+                {[
+                  fieldHints.merchant,
+                  fieldHints.total,
+                  fieldHints.date,
+                ]
+                  .filter(Boolean)
+                  .join(' · ') ||
+                  uncertain.map((f) => (f === 'total' ? 'amount' : f)).join(', ')}
                 .
               </p>
             )}
@@ -459,7 +483,10 @@ export function SnapReceiptDialog({
                   required
                   maxLength={100}
                   value={merchant}
-                  placeholder={uncertain.includes('merchant') ? 'Enter merchant' : undefined}
+                  placeholder={
+                    fieldHints.merchant ||
+                    (uncertain.includes('merchant') ? 'Confirm the merchant name' : undefined)
+                  }
                   onChange={(e) => {
                     markTouched('merchant');
                     setMerchant(e.target.value);
@@ -476,6 +503,10 @@ export function SnapReceiptDialog({
                   step={0.01}
                   required
                   value={amount}
+                  placeholder={
+                    fieldHints.total ||
+                    (uncertain.includes('total') ? 'Confirm the final amount paid' : undefined)
+                  }
                   onChange={(e) => {
                     markTouched('amount');
                     setAmount(e.target.value);
@@ -492,6 +523,10 @@ export function SnapReceiptDialog({
                   type="date"
                   required
                   value={date}
+                  aria-label={
+                    fieldHints.date ||
+                    (uncertain.includes('date') ? 'Confirm the purchase date' : 'Date')
+                  }
                   onChange={(e) => {
                     markTouched('date');
                     setDate(e.target.value);
