@@ -47,6 +47,16 @@ try {
       expected: ['Greenfield Foods', '2026-11-02', 23.76],
     },
     {
+      name: 'Acme savings block — balance is the amount paid',
+      text: 'ACME\nOUR Favorite Local Supermarket\nSale Savings -3.50\nTAX 0.10\nTAX EXEMPTION -0.10\nBALANCE 25.96\nCHANGE 0.00\nYOUR SAVINGS\nStore Savings 3.50\nTotal 3.50\nTotal Savings Value 3.50\n11/02/26 18:04\nThank you for shopping Acme!\nacmemarkets.com',
+      expected: ['ACME', '2026-11-02', 25.96],
+    },
+    {
+      name: 'savings total alone stays blank',
+      text: 'ACME\nYOUR SAVINGS\nStore Savings 3.50\nTotal 3.50\nTotal Savings Value 3.50\n11/02/26 18:04\nThank you for shopping Acme!',
+      expected: ['ACME', '2026-11-02', null],
+    },
+    {
       name: 'no labeled total — amount stays blank',
       text: 'Corner Newsstand\nMagazine 5.99\nCandy 1.25\nWater 2.00\n11/03/2026',
       expected: ['Corner Newsstand', '2026-11-03', null],
@@ -70,6 +80,12 @@ try {
   }
 
   assert.equal(parseTotalFromText('SUBTOTAL 99.00\nTAX 1.00\nTOTAL 12.50').total, 12.5);
+  assert.equal(
+    parseTotalFromText('BALANCE 25.96\nStore Savings 3.50\nTotal 3.50').total,
+    25.96,
+  );
+  assert.equal(parseTotalFromText('Store Savings 3.50\nTotal 3.50').total, null);
+  assert.equal(parseTotalFromText('YOU SAVED 2.00\nTOTAL 10.00').total, 10);
   assert.equal(parseTotalFromText('Magazine 5.99\nCandy 12.00').total, null);
   assert.equal(parseTotalFromText('****BALANCE 25.96').total, 25.96);
   assert.equal(parseMerchantFromText('Riverbend\nTOTAL 12.00', [

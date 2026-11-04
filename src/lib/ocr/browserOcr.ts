@@ -7,7 +7,7 @@ import type { OcrExtraction } from './adapter';
 import { US_MERCHANTS } from './usMerchants';
 import { prepareReceiptPhoto } from './photoPrep';
 
-const VERSION = 'browser-tesseract-2026.11.04c';
+const VERSION = 'browser-tesseract-2026.11.04d';
 
 const CUSTOMER_REVIEW_MSG = 'Review the details before saving.';
 
@@ -133,7 +133,12 @@ const AMOUNT_LABELS: { re: RegExp; priority: number; kind: string }[] = [
 ];
 
 const NON_TOTAL_LINE =
-  /\b(?:sub\s*total|subtotal|tax|tip|gratuity|discount|coupon|you\s*saved|savings?|change|cash\s*back|deposit|refund|credit\s*applied|items?\s*total|qty|quantity)\b/i;
+  /\b(?:sub\s*total|subtotal|tax|tip|gratuity|discount|coupon|you\s*saved|your\s*savings|store\s*savings|sale\s*savings|total\s*savings|savings\s*value|savings?|change|cash\s*back|deposit|refund|credit\s*applied|items?\s*total|qty|quantity)\b/i;
+
+/** "YOUR SAVINGS" starts a block. A later balance / amount-due line ends it. */
+const SAVINGS_BLOCK_START = /\byour\s+savings\b/i;
+const PAID_LABEL =
+  /\b(?:balance|amount\s*paid|amount\s*due|grand\s*total|final\s*total|total\s*due)\b/i;
 
 const MONEY_ON_LINE = /(?:USD\s*)?\$?\s*(\d{1,6}(?:[.,]\d{2}))\b/gi;
 
@@ -152,10 +157,20 @@ export function parseTotalFromText(text: string): { total: number | null; curren
   const lines = reconcileReceiptOcrText(text).split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   type Hit = { value: number; priority: number; kind: string; lineIndex: number };
   const hits: Hit[] = [];
+  // Grocery receipts print "YOUR SAVINGS / Total Savings Value 3.50" under the
+  // balance. A bare TOTAL inside that block is the savings figure, not the amount paid.
+  let inSavingsBlock = false;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    if (NON_TOTAL_LINE.test(line)) continue;
+    if (SAVINGS_BLOCK_START.test(line)) inSavingsBlock = true;
+    else if (inSavingsBlock && PAID_LABEL.test(line) && !/\bsavings?\b|\bsaved\b/i.test(line)) {
+      inSavingsBlock = false;
+    }
+    const previous = lines[i - 1] ?? '';
+    const followsSavingsSummary =
+      /\b(?:your\s+savings|store\s+savings|total\s+savings|savings\s+value)\b/i.test(previous);
+    if (inSavingsBlock || followsSavingsSummary || NON_TOTAL_LINE.test(line)) continue;
     const values = moneyValuesOnLine(line);
     if (!values.length) continue;
     for (const label of AMOUNT_LABELS) {
