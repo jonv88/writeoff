@@ -1,0 +1,33 @@
+{
+  "version": "iphone-retest-2026.11.04",
+  "note": "Crops from physical iPhone Safari screenshots (lossy). Original photos were not separately uploaded \u2014 crops approximate the on-device OCR input.",
+  "fixtures": [
+    {
+      "id": "iphone-robert",
+      "file": "robert-receipt-only.png",
+      "merchant": "Robert Fiance Beauty Schools",
+      "date": "2026-11-03",
+      "total": 11.0,
+      "device_result": {
+        "merchant": "nahert Fiance Beauty Schools",
+        "date": "2026-11-03",
+        "total": 11.0,
+        "merchant_flagged": false
+      }
+    },
+    {
+      "id": "iphone-acme",
+      "file": "acme-prepped.png",
+      "merchant": "ACME",
+      "date": "2026-11-02",
+      "total": 25.96,
+      "device_result": {
+        "merchant": null,
+        "date": "2026-11-02",
+        "total": null,
+        "merchant_flagged": true,
+        "total_flagged": true
+      }
+    }
+  ]
+}

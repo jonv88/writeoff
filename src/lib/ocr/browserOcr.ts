@@ -7,7 +7,7 @@ import type { OcrExtraction } from './adapter';
 import { US_MERCHANTS } from './usMerchants';
 import { prepareReceiptPhoto } from './photoPrep';
 
-const VERSION = 'browser-tesseract-2026.11.04a';
+const VERSION = 'browser-tesseract-2026.11.04b';
 
 const CUSTOMER_REVIEW_MSG = 'Review the details before saving.';
 
@@ -198,6 +198,39 @@ export function isGarbledMerchant(line: string): boolean {
 }
 
 /**
+ * Suspicious OCR merchant spellings that look almost-plausible but wrong
+ * (e.g. "nahert Fiance Beauty Schools" for "Robert Fiance…").
+ * Independent of date/amount evidence — never accept these unflagged.
+ */
+export function isSuspiciousMerchantName(name: string): boolean {
+  const tokens = name.trim().split(/\s+/).filter(Boolean);
+  if (!tokens.length) return true;
+
+  // Leading all-lowercase token while later tokens are Title/UPPER — classic
+  // OCR garble of a proper name at the paper edge ("nahert", "ohert").
+  const first = tokens[0];
+  if (
+    tokens.length >= 2 &&
+    /^[a-z]{3,}$/.test(first) &&
+    tokens.slice(1).some((t) => /^[A-Z][a-z]{2,}$/.test(t) || /^[A-Z]{2,}$/.test(t))
+  ) {
+    return true;
+  }
+
+  // Implausible consonant/vowel clusters in a "name-like" first token.
+  if (/^[A-Za-z]{4,}$/.test(first)) {
+    const lower = first.toLowerCase();
+    if (/^[bcdfghjklmnpqrstvwxyz]{4,}/i.test(lower)) return true;
+    if (/(?:nahert|ohert|rnbert|robent|rohert)$/i.test(lower)) return true;
+  }
+
+  return false;
+}
+
+const BUSINESS_NAME_RE =
+  /\b(?:co|inc|llc|ltd|market|shop|cafe|coffee|bistro|diner|grill|kitchen|hardware|restaurant|bakery|pharmacy|foods|mart|supply|supplies|newsstand|bookstore|barbershop|studio|clinic|salon|spa|schools?|beauty|academy|institute)\b/i;
+
+/**
  * Marketing / tagline lines are not merchants (e.g. "OUR Favorite Local Super marke").
  * Generic — no brand-specific rules.
  */
@@ -228,9 +261,9 @@ export function isSloganLine(line: string): boolean {
 /** Footer “Thank you for shopping …” often carries the real store name. */
 export function merchantFromThankYou(text: string): string | null {
   const patterns = [
-    /thank(?:s|\s*you)\s+for\s+shopping\s+(?:at\s+)?([^\n.!?]{3,60})/i,
-    /thank(?:s|\s*you)\s+for\s+visiting\s+(?:at\s+)?([^\n.!?]{3,60})/i,
-    /thanks\s+for\s+choosing\s+([^\n.!?]{3,60})/i,
+    /thank(?:s|\s*you)?\s+for\s+shopping\s+(?:at\s+)?([^\n.!?]{2,60})/i,
+    /thank(?:s|\s*you)?\s+for\s+visiting\s+(?:at\s+)?([^\n.!?]{2,60})/i,
+    /thanks\s+for\s+choosing\s+([^\n.!?]{2,60})/i,
   ];
   for (const re of patterns) {
     const m = text.match(re);
@@ -238,7 +271,9 @@ export function merchantFromThankYou(text: string): string | null {
     let cand = normalizeMerchantLine(m[1]);
     // Drop trailing "today" / "with us"
     cand = cand.replace(/\b(today|with\s+us|again)\b/gi, '').replace(/\s+/g, ' ').trim();
-    if (!cand || isGarbledMerchant(cand) || isSloganLine(cand)) continue;
+    if (!cand || isGarbledMerchant(cand) || isSloganLine(cand) || isSuspiciousMerchantName(cand)) {
+      continue;
+    }
     if (!cleanMerchant(cand)) continue;
     return cand.slice(0, 100);
   }
@@ -254,6 +289,7 @@ function merchantKey(name: string): string {
 function cleanMerchant(raw: string): string | null {
   const name = normalizeMerchantLine(raw);
   if (!name || BODY_LINE.test(name) || isGarbledMerchant(name) || isSloganLine(name)) return null;
+  if (isSuspiciousMerchantName(name)) return null;
   if (/^\d+\s|\d{3,}|\d+[.,]\d{2}|\b(?:cashier|register|terminal)\b/i.test(raw)) return null;
   return name.slice(0, 100);
 }
@@ -267,8 +303,9 @@ function canonicalMerchant(name: string): string {
 
 /** Only official directory domains qualify as standalone website evidence. */
 export function merchantFromWebsite(text: string): string | null {
-  const hosts = [...text.matchAll(/(?:^|[^\w@.-])((?:[a-z0-9-]+\.)+[a-z]{2,})(?=$|[^\w.-])/gi)]
-    .map((match) => match[1].toLowerCase());
+  // Allow path suffixes (acmemarkets.com/foru) and odd OCR spacing in hosts.
+  const hosts = [...text.matchAll(/(?:^|[^\w@.-])((?:[a-z0-9-]+\.)+[a-z]{2,})(?:\/[\w./-]*)?(?=$|[^\w./-])/gi)]
+    .map((match) => match[1].toLowerCase().replace(/\s+/g, ''));
   const matches = US_MERCHANTS.filter((entry) => entry.domains.some((domain) =>
     hosts.some((host) => host === domain || host.endsWith('.' + domain)),
   ));
@@ -277,11 +314,21 @@ export function merchantFromWebsite(text: string): string | null {
 
 type ReceiptLine = { text: string; bbox: { y0: number; y1: number }; confidence: number };
 
-export function parseMerchantFromText(
+export type MerchantParseResult = {
+  merchant: string | null;
+  /**
+   * Weak evidence (e.g. prominence-only). Fill may still happen, but the field
+   * must be flagged Needs review — never masked by a correct date/amount.
+   */
+  weak: boolean;
+  evidence: 'known' | 'domain' | 'footer' | 'labeled' | 'business' | 'prominent' | 'none';
+};
+
+export function parseMerchantDetails(
   text: string,
   positionedLines: ReceiptLine[] = [],
   imageHeight?: number,
-): string | null {
+): MerchantParseResult {
   const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   // Stop at transaction metadata or the first item/price row. Only explicit
   // merchant evidence is considered below that boundary.
@@ -291,33 +338,74 @@ export function parseMerchantFromText(
     /\b\d+[.,]\d{2}\b/.test(line) || parseDateFromText(line) !== null,
   );
   const headerLines = boundary < 0 ? header : header.slice(0, boundary);
-  const printed = headerLines.flatMap((raw, index) => {
+  type Cand = {
+    name: string;
+    score: number;
+    evidence: MerchantParseResult['evidence'];
+    lineConfidence: number;
+  };
+  const printed: Cand[] = headerLines.flatMap((raw, index) => {
     const labeled = raw.match(/^(?:merchant|store|sold\s+by|vendor|business|payee)\s*[:#-]\s*(.+)$/i);
     const name = cleanMerchant(labeled?.[1] ?? raw);
-    if (!name || /(?:https?:\/\/|www\.|\.(?:com|net|org)\b)/i.test(raw)) return [];
+    // Allow .edu hosts through domain path; still skip raw URL lines as names.
+    if (!name || /(?:https?:\/\/|www\.|\.(?:com|net|org|edu)\b)/i.test(raw)) return [];
     const canonical = canonicalMerchant(name);
     const known = US_MERCHANTS.some((entry) => entry.name === canonical);
     const position = positionedLines.find((line) => merchantKey(line.text) === merchantKey(raw));
-    const prominent = position && imageHeight && position.bbox.y0 < imageHeight * 0.3 &&
-      position.bbox.y1 - position.bbox.y0 >= imageHeight * 0.018 && position.confidence >= 55;
-    const businessName = /\b(?:co|inc|llc|ltd|market|shop|cafe|coffee|bistro|diner|grill|kitchen|hardware|restaurant|bakery|pharmacy|foods|mart|supply|supplies|newsstand|bookstore|barbershop|studio|clinic)\b/i.test(name);
-    return labeled || known || prominent || businessName
-      ? [{ name: canonical, score: (known ? 8 : 0) + (labeled ? 7 : 0) +
-        (prominent ? 5 : 0) + (businessName ? 3 : 0) + (6 - index) / 10 }]
-      : [];
+    const lineConfidence = position?.confidence ?? 0;
+    // Prominence alone is weak — require stronger OCR line confidence than before.
+    const prominent = Boolean(
+      position && imageHeight && position.bbox.y0 < imageHeight * 0.3 &&
+      position.bbox.y1 - position.bbox.y0 >= imageHeight * 0.018 && position.confidence >= 70,
+    );
+    const businessName = BUSINESS_NAME_RE.test(name);
+    let evidence: MerchantParseResult['evidence'] = 'none';
+    if (known) evidence = 'known';
+    else if (labeled) evidence = 'labeled';
+    else if (businessName) evidence = 'business';
+    else if (prominent) evidence = 'prominent';
+    else return [];
+    // Prominence-only without a business-shaped name stays weak.
+    const score =
+      (known ? 8 : 0) + (labeled ? 7 : 0) + (prominent ? 5 : 0) +
+      (businessName ? 3 : 0) + (6 - index) / 10 + lineConfidence / 100;
+    return [{ name: canonical, score, evidence, lineConfidence }];
   }).sort((a, b) => b.score - a.score);
 
   const footer = merchantFromThankYou(text);
   const domain = merchantFromWebsite(text);
+  if (footer && domain && merchantKey(canonicalMerchant(footer)) !== merchantKey(domain)) {
+    return { merchant: null, weak: false, evidence: 'none' };
+  }
   const explicit = footer ? canonicalMerchant(footer) : domain;
-  if (footer && domain && merchantKey(canonicalMerchant(footer)) !== merchantKey(domain)) return null;
+  const explicitEvidence: MerchantParseResult['evidence'] = footer ? 'footer' : domain ? 'domain' : 'none';
   const headerName = printed[0]?.name;
   if (explicit && headerName && merchantKey(explicit) !== merchantKey(headerName)) {
-    // An official domain can corroborate an unfamiliar header spelling, but
-    // conflicting names are safer to leave for review.
-    return null;
+    // Domain/footer can stand alone when the header OCR spelling conflicts —
+    // prefer the explicit evidence over a garbled header autofill.
+    return { merchant: explicit, weak: false, evidence: explicitEvidence };
   }
-  return explicit ?? headerName ?? null;
+  if (explicit) {
+    return { merchant: explicit, weak: false, evidence: explicitEvidence };
+  }
+  if (!headerName) {
+    return { merchant: null, weak: false, evidence: 'none' };
+  }
+  const top = printed[0]!;
+  // Prominence-only fills are weak. When OCR line confidence is available and low,
+  // also flag — but do not treat "no geometry" (text-only parse) as weak.
+  const weak =
+    top.evidence === 'prominent' ||
+    (top.lineConfidence > 0 && top.lineConfidence < 75);
+  return { merchant: top.name, weak, evidence: top.evidence };
+}
+
+export function parseMerchantFromText(
+  text: string,
+  positionedLines: ReceiptLine[] = [],
+  imageHeight?: number,
+): string | null {
+  return parseMerchantDetails(text, positionedLines, imageHeight).merchant;
 }
 
 export function formatOcrAmount(total: number): string {
@@ -336,21 +424,30 @@ export function parseReceiptText(text: string, confidencePct: number,
   lines?: ReceiptLine[],
   imageHeight?: number,
 ): OcrExtraction {
-  const merchant = parseMerchantFromText(text, lines, imageHeight);
+  const merchantDetails = parseMerchantDetails(text, lines, imageHeight);
+  // Merchant confidence is independent of date/amount success.
+  let merchant = merchantDetails.merchant;
   const date = parseDateFromText(text);
   const { total, currency } = parseTotalFromText(text);
   const uncertain: string[] = [];
   if (!merchant) uncertain.push('merchant');
+  else if (merchantDetails.weak) uncertain.push('merchant');
   if (!date) uncertain.push('date');
   if (total == null) uncertain.push('total');
-  // Low overall OCR confidence: blank uncertain fields rather than keep shaky autofills.
+  // Low overall OCR confidence: keep filled values but require review per field.
+  // Do not let a strong total/date clear a weak merchant.
   if (confidencePct < 55) {
-    // Keep values but require review prompts; do not invent replacements.
     if (merchant) uncertain.push('merchant');
     if (date) uncertain.push('date');
     if (total != null) uncertain.push('total');
   }
   const unique = [...new Set(uncertain)];
+  // Prefer blank over an unflagged wrong merchant: if merchant is weak AND
+  // evidence is prominence-only with middling line OCR, leave blank.
+  if (merchant && merchantDetails.weak && merchantDetails.evidence === 'prominent') {
+    merchant = null;
+    if (!unique.includes('merchant')) unique.push('merchant');
+  }
   const hints = fieldHintsFor(unique);
   const preview = text.replace(/\s+/g, ' ').trim().slice(0, 280);
 
@@ -425,39 +522,92 @@ export async function extractWithBrowserOcr(
     let extraction: OcrExtraction;
     try {
       const { data } = await worker.recognize(prepared.ocrFile);
-      extraction = parseReceiptText(data.text || '', data.confidence || 0, data.lines, prepared.height);
-      if (!extraction.merchant && prepared.width && prepared.height) {
+      const fullText = data.text || '';
+      extraction = parseReceiptText(fullText, data.confidence || 0, data.lines, prepared.height);
+
+      const applyParsed = (text: string, conf: number, lines?: ReceiptLine[]) => {
+        // Re-parse the combined text so merchant confidence stays independent of
+        // any newly recovered date/amount from a focused region.
+        const merged = parseReceiptText(
+          text,
+          Math.max(conf, data.confidence || 0),
+          lines || data.lines,
+          prepared.height,
+        );
+        if (merged.merchant) extraction.merchant = merged.merchant;
+        else if (!merged.merchant) extraction.merchant = null;
+        if (merged.date) extraction.date = merged.date;
+        if (merged.total != null) {
+          extraction.total = merged.total;
+          if (merged.currency) extraction.currency = merged.currency;
+        }
+        extraction.uncertainFields = merged.uncertainFields;
+        extraction.fieldHints = merged.fieldHints;
+        extraction.status = merged.uncertainFields.length ? 'needs_details' : 'ready';
+        extraction.rawTextPreview = merged.rawTextPreview;
+      };
+
+      if ((!extraction.merchant || extraction.uncertainFields.includes('merchant')) &&
+        prepared.width && prepared.height) {
         try {
           const { data: header } = await worker.recognize(prepared.ocrFile, {
-            rectangle: { left: 0, top: 0, width: prepared.width, height: Math.floor(prepared.height * 0.25) },
+            rectangle: {
+              left: 0,
+              top: 0,
+              width: prepared.width,
+              height: Math.floor(prepared.height * 0.28),
+            },
           });
-          const recovered = parseMerchantFromText(
-            header.text + '\n' + data.text, header.lines, prepared.height,
-          );
-          if (recovered && header.confidence >= 55) {
-            extraction.merchant = recovered;
-            extraction.uncertainFields = extraction.uncertainFields.filter((field) => field !== 'merchant');
-            extraction.status = extraction.uncertainFields.length ? 'needs_details' : 'ready';
+          if (header.confidence >= 50) {
+            applyParsed(header.text + '\n' + fullText, header.confidence, header.lines);
           }
         } catch {
           // A focused pass may fail independently. Keep the original fields.
         }
       }
-      if (!extraction.date) {
+      if (!extraction.date && prepared.width && prepared.height) {
         try {
           const top = Math.floor(prepared.height * 0.65);
           const { data: footer } = await worker.recognize(prepared.ocrFile, {
             rectangle: { left: 0, top, width: prepared.width, height: prepared.height - top },
           });
-          // Re-evaluate both passes together so conflicting dates remain unresolved.
-          const date = parseDateFromText(data.text + '\n' + footer.text);
-          if (date && footer.confidence >= 55) {
-            extraction.date = date;
-            extraction.uncertainFields = extraction.uncertainFields.filter((field) => field !== 'date');
-            extraction.status = extraction.uncertainFields.length ? 'needs_details' : 'ready';
+          if (footer.confidence >= 50) {
+            applyParsed(fullText + '\n' + footer.text, footer.confidence);
           }
         } catch {
           // Keep fields recovered by the full scan.
+        }
+      }
+      // Focused final-total / balance region when amount is still blank.
+      if (extraction.total == null && prepared.width && prepared.height) {
+        try {
+          const top = Math.floor(prepared.height * 0.45);
+          const { data: mid } = await worker.recognize(prepared.ocrFile, {
+            rectangle: {
+              left: 0,
+              top,
+              width: prepared.width,
+              height: prepared.height - top,
+            },
+          });
+          if (mid.confidence >= 45) {
+            const focusedTotal = parseTotalFromText(mid.text);
+            const combinedTotal = parseTotalFromText(fullText + '\n' + mid.text);
+            const total = combinedTotal.total ?? focusedTotal.total;
+            if (total != null) {
+              extraction.total = total;
+              extraction.currency = combinedTotal.currency || focusedTotal.currency || 'USD';
+              extraction.uncertainFields = extraction.uncertainFields.filter((f) => f !== 'total');
+              // Merchant uncertainty stays — amount recovery must not mask it.
+              if (!extraction.merchant && !extraction.uncertainFields.includes('merchant')) {
+                extraction.uncertainFields.push('merchant');
+              }
+              extraction.fieldHints = fieldHintsFor(extraction.uncertainFields);
+              extraction.status = extraction.uncertainFields.length ? 'needs_details' : 'ready';
+            }
+          }
+        } catch {
+          // Keep blank amount rather than invent.
         }
       }
     } finally {

@@ -4,8 +4,13 @@ import { createServer } from 'vite';
 
 const server = await createServer({ server: { middlewareMode: true, watch: null }, appType: 'custom' });
 try {
-  const { parseReceiptText, parseMerchantFromText, parseDateFromText, parseTotalFromText } =
-    await server.ssrLoadModule('/src/lib/ocr/browserOcr.ts');
+  const {
+    parseReceiptText,
+    parseMerchantFromText,
+    parseDateFromText,
+    parseTotalFromText,
+    isSuspiciousMerchantName,
+  } = await server.ssrLoadModule('/src/lib/ocr/browserOcr.ts');
   const fixtures = [
     {
       name: 'ACME-style footer and short transaction date',
@@ -62,15 +67,38 @@ try {
 
   assert.equal(parseTotalFromText('SUBTOTAL 99.00\nTAX 1.00\nTOTAL 12.50').total, 12.5);
   assert.equal(parseTotalFromText('Magazine 5.99\nCandy 12.00').total, null);
+  assert.equal(parseTotalFromText('****BALANCE 25.96').total, 25.96);
   assert.equal(parseMerchantFromText('Riverbend\nTOTAL 12.00', [
     { text: 'Riverbend', confidence: 95, bbox: { y0: 40, y1: 85 } },
   ], 1000), 'Riverbend');
   assert.equal(parseMerchantFromText('Receipt\nGROC HONEDIBLE\nBALANCE 25.96'), null);
+
+  // Physical iPhone regression: garbled leading token must not autofill unflagged.
+  assert.equal(isSuspiciousMerchantName('nahert Fiance Beauty Schools'), true);
+  assert.equal(isSuspiciousMerchantName('Robert Fiance Beauty Schools'), false);
+  const nahert = parseReceiptText(
+    'nahert Fiance Beauty Schools\nNovember 3, 2026\nTotal $11.00',
+    80,
+    [{ text: 'nahert Fiance Beauty Schools', confidence: 72, bbox: { y0: 20, y1: 90 } }],
+    1000,
+  );
+  assert.equal(nahert.merchant, null, 'nahert merchant blank');
+  assert.equal(nahert.total, 11, 'nahert total still filled');
+  assert.equal(nahert.uncertainFields.includes('merchant'), true, 'nahert merchant needs review');
+  assert.equal(nahert.uncertainFields.includes('total'), false, 'correct total must not be uncertain');
+
+  const robert = parseReceiptText(
+    'Robert Fiance Beauty Schools\nNovember 3, 2026\nMens Cut\nTotal $11.00',
+    80,
+  );
+  assert.equal(robert.merchant, 'Robert Fiance Beauty Schools');
+  assert.equal(robert.uncertainFields.includes('merchant'), false);
+
   assert.equal(parseDateFromText('02/30/26\n11/02/26 18:04'), '2026-11-02');
   assert.equal(parseDateFromText('Valid thru 12/31/2026\n2026-11-02'), '2026-11-02');
   assert.equal(parseDateFromText('11/02/26\n11/03/26'), null);
   assert.equal(parseDateFromText('Nov 31, 2026'), null);
-  console.log('PASS header geometry, date validation, total evidence rules');
+  console.log('PASS header geometry, date validation, total evidence, merchant confidence');
 } finally {
   await server.close();
 }

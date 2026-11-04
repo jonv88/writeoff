@@ -45,3 +45,6 @@ blob-report/
 # Personal / generated financial fixtures (never commit real customer data)
 fixtures/personal/
 *.personal.json
+
+# Tesseract language data downloaded at runtime
+*.traineddata

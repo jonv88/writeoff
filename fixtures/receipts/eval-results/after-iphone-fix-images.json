@@ -1,0 +1,448 @@
+{
+  "label": "after-iphone-fix-images",
+  "generatedAt": "2026-11-04T06:05:54.976Z",
+  "engine": "tesseract.js + focused header/total regions + merchant confidence",
+  "all": {
+    "merchant": {
+      "correct": 11,
+      "incorrect": 0,
+      "blank": 1,
+      "correct_blank": 0,
+      "incorrect_unflagged": 0,
+      "incorrect_flagged": 0,
+      "n": 12,
+      "accuracy_among_fills": 1,
+      "correct_including_blank_ok": 0.9166666666666666
+    },
+    "date": {
+      "correct": 11,
+      "incorrect": 0,
+      "blank": 1,
+      "correct_blank": 0,
+      "incorrect_unflagged": 0,
+      "incorrect_flagged": 0,
+      "n": 12,
+      "accuracy_among_fills": 1,
+      "correct_including_blank_ok": 0.9166666666666666
+    },
+    "total": {
+      "correct": 7,
+      "incorrect": 0,
+      "blank": 3,
+      "correct_blank": 2,
+      "incorrect_unflagged": 0,
+      "incorrect_flagged": 0,
+      "n": 12,
+      "accuracy_among_fills": 1,
+      "correct_including_blank_ok": 0.75
+    }
+  },
+  "synthetic": {
+    "merchant": {
+      "correct": 10,
+      "incorrect": 0,
+      "blank": 0,
+      "correct_blank": 0,
+      "incorrect_unflagged": 0,
+      "incorrect_flagged": 0,
+      "n": 10,
+      "accuracy_among_fills": 1,
+      "correct_including_blank_ok": 1
+    },
+    "date": {
+      "correct": 9,
+      "incorrect": 0,
+      "blank": 1,
+      "correct_blank": 0,
+      "incorrect_unflagged": 0,
+      "incorrect_flagged": 0,
+      "n": 10,
+      "accuracy_among_fills": 1,
+      "correct_including_blank_ok": 0.9
+    },
+    "total": {
+      "correct": 6,
+      "incorrect": 0,
+      "blank": 2,
+      "correct_blank": 2,
+      "incorrect_unflagged": 0,
+      "incorrect_flagged": 0,
+      "n": 10,
+      "accuracy_among_fills": 1,
+      "correct_including_blank_ok": 0.8
+    }
+  },
+  "iphone_crops": {
+    "merchant": {
+      "correct": 1,
+      "incorrect": 0,
+      "blank": 1,
+      "correct_blank": 0,
+      "incorrect_unflagged": 0,
+      "incorrect_flagged": 0,
+      "n": 2,
+      "accuracy_among_fills": 1,
+      "correct_including_blank_ok": 0.5
+    },
+    "date": {
+      "correct": 2,
+      "incorrect": 0,
+      "blank": 0,
+      "correct_blank": 0,
+      "incorrect_unflagged": 0,
+      "incorrect_flagged": 0,
+      "n": 2,
+      "accuracy_among_fills": 1,
+      "correct_including_blank_ok": 1
+    },
+    "total": {
+      "correct": 1,
+      "incorrect": 0,
+      "blank": 1,
+      "correct_blank": 0,
+      "incorrect_unflagged": 0,
+      "incorrect_flagged": 0,
+      "n": 2,
+      "accuracy_among_fills": 1,
+      "correct_including_blank_ok": 0.5
+    }
+  },
+  "holdout": {
+    "merchant": {
+      "correct": 5,
+      "incorrect": 0,
+      "blank": 1,
+      "correct_blank": 0,
+      "incorrect_unflagged": 0,
+      "incorrect_flagged": 0,
+      "n": 6,
+      "accuracy_among_fills": 1,
+      "correct_including_blank_ok": 0.8333333333333334
+    },
+    "date": {
+      "correct": 5,
+      "incorrect": 0,
+      "blank": 1,
+      "correct_blank": 0,
+      "incorrect_unflagged": 0,
+      "incorrect_flagged": 0,
+      "n": 6,
+      "accuracy_among_fills": 1,
+      "correct_including_blank_ok": 0.8333333333333334
+    },
+    "total": {
+      "correct": 3,
+      "incorrect": 0,
+      "blank": 2,
+      "correct_blank": 1,
+      "incorrect_unflagged": 0,
+      "incorrect_flagged": 0,
+      "n": 6,
+      "accuracy_among_fills": 1,
+      "correct_including_blank_ok": 0.6666666666666666
+    }
+  },
+  "rows": [
+    {
+      "id": "gt-acme-balance",
+      "split": "tune",
+      "kind": "chain_grocery_phone_shadow_angle",
+      "ocrPreview": "SS ACME Store #1856 GROCERY ACME Store #1856 GROCERY MILK 25 3.49 BREAD 2.99 PRODUCE 8.50 YOU SAVED 12.00 SUBTOTAL 14.98 TAX 1.20 BALANCE 25.96 VISA 25.96 11/02/26 18:p4 Thank yau for shopping Acme! acmemarkets . com —_—— 6.50 YOU SAVED 12.",
+      "confidence": 86,
+      "expected": {
+        "merchant": "ACME",
+        "date": "2026-11-02",
+        "total": 25.96
+      },
+      "got": {
+        "merchant": "ACME",
+        "date": "2026-11-02",
+        "total": 25.96,
+        "uncertain": []
+      },
+      "scores": {
+        "merchant": "correct",
+        "date": "correct",
+        "total": "correct"
+      },
+      "wrongFlagged": {}
+    },
+    {
+      "id": "gt-restaurant-tip",
+      "split": "tune",
+      "kind": "independent_restaurant_tip_phone_crop",
+      "ocrPreview": "PE ———— Riverbend Bistro Table 4 18.00 PE ———— Riverbend Bistro Table 4 Entree iE ot Drink 458 SUBTOTAL 22.58 — 1.80 = 5.00 — 29.30 AMOUNT PATD 250 | nov 3, 2026 19:22 =—————— a Tax 1.80 1p 5.00 29.30 AMOUNT PATD 250 | Nov 3, 2026 19:22 ———",
+      "confidence": 72,
+      "expected": {
+        "merchant": "Riverbend Bistro",
+        "date": "2026-11-03",
+        "total": 29.3
+      },
+      "got": {
+        "merchant": "Riverbend Bistro",
+        "date": "2026-11-03",
+        "total": null,
+        "uncertain": [
+          "total"
+        ]
+      },
+      "scores": {
+        "merchant": "correct",
+        "date": "correct",
+        "total": "blank"
+      },
+      "wrongFlagged": {}
+    },
+    {
+      "id": "gt-discount-grand-total",
+      "split": "tune",
+      "kind": "independent_discount_multi_total",
+      "ocrPreview": "NORTHSIDE HARDWARE Hammer 24.99 NORTHSIDE HARDWARE Hammer 24.99 Nails 3.50 DISCOUNT -5.00 SUBTOTAL 23.49 TAX 1.88 GRAND TOTAL 25.37 11/01/2026 10:15 Thank you for shopping at Northside Hardware MAILE Ea SUBTOTAL 23.49 TAX 1.88 GRAND TOTAL 2",
+      "confidence": 94,
+      "expected": {
+        "merchant": "NORTHSIDE HARDWARE",
+        "date": "2026-11-01",
+        "total": 25.37
+      },
+      "got": {
+        "merchant": "Northside Hardware",
+        "date": "2026-11-01",
+        "total": 25.37,
+        "uncertain": []
+      },
+      "scores": {
+        "merchant": "correct",
+        "date": "correct",
+        "total": "correct"
+      },
+      "wrongFlagged": {}
+    },
+    {
+      "id": "gt-walmart-chain",
+      "split": "holdout",
+      "kind": "chain_dim_angle",
+      "ocrPreview": "Walmart Stare #138 Walmart Stare #138 DELT Sandwich 6.50 Chips 2.00 SUBTOTAL 8.50 TAX 0.68 TOTAL 19.90 (includes prepaid gift remaining) 11/61/2026 13:30 ivi. walmart . com hips 2.00 SUBTOTAL 8.50 TAX 0.68 TOTAL 19.99 (includes prepaid gift",
+      "confidence": 94,
+      "expected": {
+        "merchant": "Walmart",
+        "date": "2026-11-01",
+        "total": 19.9
+      },
+      "got": {
+        "merchant": "Walmart",
+        "date": null,
+        "total": null,
+        "uncertain": [
+          "date",
+          "total"
+        ]
+      },
+      "scores": {
+        "merchant": "correct",
+        "date": "blank",
+        "total": "blank"
+      },
+      "wrongFlagged": {}
+    },
+    {
+      "id": "gt-coffee-digital",
+      "split": "tune",
+      "kind": "independent_digital_clean",
+      "ocrPreview": "DEMO COEEEE CO DEMO COFFEE CO 123 Main St Latte 4.50 TOTAL USD $4.90 10/21/2026 Latte 4.50 TOTAL USD $4.90 10/21/2026",
+      "confidence": 95,
+      "expected": {
+        "merchant": "DEMO COFFEE CO",
+        "date": "2026-10-21",
+        "total": 4.9
+      },
+      "got": {
+        "merchant": "DEMO COFFEE CO",
+        "date": "2026-10-21",
+        "total": 4.9,
+        "uncertain": []
+      },
+      "scores": {
+        "merchant": "correct",
+        "date": "correct",
+        "total": "correct"
+      },
+      "wrongFlagged": {}
+    },
+    {
+      "id": "gt-balance-due-cafe",
+      "split": "holdout",
+      "kind": "independent_balance_due_phone",
+      "ocrPreview": "Ee — = = esses Maple street cafe Soup 7.00 salad 9.00 SUBTOTAL 16.00 TAX 1.28 TP 3.50 BALANCE DUE 20.78 | purchase date 11/04/2026 —=—————— SUBTOTAL TAX 1.28 Tw 3.50 | BALANCE DUE 20.78 | purchase date 11/04/2026 —=——————",
+      "confidence": 83,
+      "expected": {
+        "merchant": "Maple Street Cafe",
+        "date": "2026-11-04",
+        "total": 20.78
+      },
+      "got": {
+        "merchant": "Maple street cafe",
+        "date": "2026-11-04",
+        "total": 20.78,
+        "uncertain": []
+      },
+      "scores": {
+        "merchant": "correct",
+        "date": "correct",
+        "total": "correct"
+      },
+      "wrongFlagged": {}
+    },
+    {
+      "id": "gt-savings-larger-than-total",
+      "split": "tune",
+      "kind": "savings_larger_than_paid",
+      "ocrPreview": "Greenfield Foods OUR Favorite Local Market Greenfield Foods OUR Favorite Local Market Items 46.00 YOU SAVED 48.00 SUBTOTAL 22.00 TAX 1.76 AMOUNT DUE 23.76 11/02/26 09:11 Thank you for shopping at Greenfield Foods —— eLVe SUBTOTAL 22.00 TAX ",
+      "confidence": 95,
+      "expected": {
+        "merchant": "Greenfield Foods",
+        "date": "2026-11-02",
+        "total": 23.76
+      },
+      "got": {
+        "merchant": "Greenfield Foods",
+        "date": "2026-11-02",
+        "total": 23.76,
+        "uncertain": []
+      },
+      "scores": {
+        "merchant": "correct",
+        "date": "correct",
+        "total": "correct"
+      },
+      "wrongFlagged": {}
+    },
+    {
+      "id": "gt-digital-invoice",
+      "split": "holdout",
+      "kind": "digital_invoice_pdf_like",
+      "ocrPreview": "Oak & Pine Supply Oak & Pine Supply Invoice #4412 Widget A 12.00 Widget B 8.00 Subtotal 20.00 Sales Tax 1.60 Amount Paid 21.60 Transaction date: 2026-10-30 Widget B 8.00 Subtotal 20.00 Sales Tax 1.60 Amount Paid 21.60 Transaction date: 2026",
+      "confidence": 93,
+      "expected": {
+        "merchant": "Oak & Pine Supply",
+        "date": "2026-10-30",
+        "total": 21.6
+      },
+      "got": {
+        "merchant": "Oak & Pine Supply",
+        "date": "2026-10-30",
+        "total": 21.6,
+        "uncertain": []
+      },
+      "scores": {
+        "merchant": "correct",
+        "date": "correct",
+        "total": "correct"
+      },
+      "wrongFlagged": {}
+    },
+    {
+      "id": "gt-no-total-label",
+      "split": "tune",
+      "kind": "no_labeled_total_expect_blank",
+      "ocrPreview": "_— Corner Newsstand Maga 3 me = | Corner Newsstand Magazine Sn Candy — Water — 11/03/2026 | BE as Water 2 11/03/2026 | BE",
+      "confidence": 59,
+      "expected": {
+        "merchant": "Corner Newsstand",
+        "date": "2026-11-03",
+        "total": null
+      },
+      "got": {
+        "merchant": "Corner Newsstand",
+        "date": "2026-11-03",
+        "total": null,
+        "uncertain": [
+          "total"
+        ]
+      },
+      "scores": {
+        "merchant": "correct",
+        "date": "correct",
+        "total": "correct_blank"
+      },
+      "wrongFlagged": {}
+    },
+    {
+      "id": "gt-conflicting-totals",
+      "split": "holdout",
+      "kind": "conflicting_totals_expect_blank_or_careful",
+      "ocrPreview": "Harbor Market Harbor Market Produce 10.00 TOTAL 12.50 GRAND TOTAL 15.00 AMOUNT DUE 11.00 11/02/2026 12:00 TOTAL 12.50 GRAND TOTAL 15.00 AMOUNT DUE 11.00 11/02/2026 12:00",
+      "confidence": 96,
+      "expected": {
+        "merchant": "Harbor Market",
+        "date": "2026-11-02",
+        "total": null
+      },
+      "got": {
+        "merchant": "Harbor Market",
+        "date": "2026-11-02",
+        "total": null,
+        "uncertain": [
+          "total"
+        ]
+      },
+      "scores": {
+        "merchant": "correct",
+        "date": "correct",
+        "total": "correct_blank"
+      },
+      "wrongFlagged": {}
+    },
+    {
+      "id": "iphone-robert-crop",
+      "split": "holdout",
+      "kind": "physical_iphone_screenshot_crop",
+      "ocrPreview": "TT — Robert Fiance Beauty Schools \" November 3, 2026 “Sv 6:56PM 2 Gloria : Mens Cut 8 nish $11.00 Total $11.00 Visa 7412 (Contactless $1100 Mens Cut & Finish $11.00 Hoa $11.00 pga al $11.00.",
+      "confidence": 62,
+      "expected": {
+        "merchant": "Robert Fiance Beauty Schools",
+        "date": "2026-11-03",
+        "total": 11
+      },
+      "got": {
+        "merchant": "Robert Fiance Beauty Schools",
+        "date": "2026-11-03",
+        "total": 11,
+        "uncertain": []
+      },
+      "scores": {
+        "merchant": "correct",
+        "date": "correct",
+        "total": "correct"
+      },
+      "wrongFlagged": {}
+    },
+    {
+      "id": "iphone-acme-crop",
+      "split": "holdout",
+      "kind": "physical_iphone_screenshot_crop",
+      "ocrPreview": "y— OUR Faxoriit, | peg Swpermayke Ore 1656 Dir Loe Graf Main: AE x Bsus 221 Ave At Port foe Vest le for oer mem Ame UT WR CASHIER Toop WS Dana J 117s, or big 9S ragr £2597 UU ORNAMENT ga L497 471 eo ORGANIC Raspgege 699 ogg 177, 9 a PROSCUI",
+      "confidence": 40,
+      "expected": {
+        "merchant": "ACME",
+        "date": "2026-11-02",
+        "total": 25.96
+      },
+      "got": {
+        "merchant": null,
+        "date": "2026-11-02",
+        "total": null,
+        "uncertain": [
+          "merchant",
+          "total",
+          "date"
+        ]
+      },
+      "scores": {
+        "merchant": "blank",
+        "date": "correct",
+        "total": "blank"
+      },
+      "wrongFlagged": {}
+    }
+  ]
+}

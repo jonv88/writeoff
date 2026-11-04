@@ -31,4 +31,8 @@ Varied merchants/layouts for before/after eval. Tune vs holdout splits. Text OCR
 
 Copies also live under the agent store `media/receipt-reliability/fixtures/`.
 
+### iPhone retest crops (`iphone-retest/`)
+
+Lossy crops from physical iPhone Safari UI screenshots (not original camera files). Used for scan→form diagnosis after device retest. Ground truth + device form outcomes in `iphone-retest/ground-truth.json`. Store originals/screenshots: `media/receipt-reliability/iphone-retest/`.
+
 Used by `npm run verify:receipt-flow`, `node scripts/test-browser-ocr-parse.mjs`, and `node scripts/eval-receipt-reliability.mjs`. Nonpersonal synthetic only.
