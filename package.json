@@ -16,6 +16,7 @@
     "test:veryfi-mock": "node scripts/test-veryfi-mock-fallback.mjs",
     "test:receipt-evidence": "node scripts/test-receipt-evidence.mjs",
     "test:launch": "node scripts/test-launch-readiness.mjs",
+    "test:isolation": "node scripts/test-rls-isolation.mjs",
     "test:receipt-isolation": "node scripts/test-receipt-scan-session.mjs",
     "eval:receipt-reliability": "node scripts/eval-receipt-reliability.mjs",
     "migrations:print": "bash scripts/apply-migrations.sh",
@@ -36,6 +37,7 @@
     "tesseract.js": "^5.1.1"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.3.14",
     "@types/node": "^24.19.2",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",

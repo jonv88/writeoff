@@ -10,7 +10,8 @@ Legend: **Done** · **Partial** · **Blocked** · **Not started**
 | --- | --- | --- |
 | Template lock / five screens | Done | `npm run verify:template` |
 | Supabase migrations | Done (SQL) | Not applied in this environment. Includes sandbox bank and entitlement tables. |
-| Auth / live isolation | Blocked | `VITE_SUPABASE_URL` and anon key are missing here |
+| Auth / hosted sync | Blocked | A new project on jonv88's Universe is $10/month. Rhev projects were not used. |
+| Two-customer RLS | Done (local Postgres) | Not applied to a hosted Writeoff project |
 | Capacitor iOS | Partial | Config only. This machine has no Xcode |
 
 ## B — Receipts and review
@@ -18,7 +19,7 @@ Legend: **Done** · **Partial** · **Blocked** · **Not started**
 | Capability | Status | Notes |
 | --- | --- | --- |
 | Suggestions, Business / Personal / Split, CSV | Done (client) | Eligible amount stays empty until the customer checks it |
-| Snap a receipt, local save/reload, text draft | Done (browser) | Photo bytes are not in the text draft |
+| Snap a receipt, local save/reload, photo draft | Done (browser) | Closing review keeps the photo privately and does not spend an OCR attempt |
 | Veryfi evidence totals | Done (recorded) | Physical iPhone retest still open. One live attempt reserved |
 | Diagnostics | Done (code) | `structuredTotal` and `reason` survive an eight-line evidence cap |
 | Pharmacy categorization | Done | Merchant name alone does not suggest medical |

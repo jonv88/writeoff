@@ -5,7 +5,15 @@ import { formatOcrAmount } from '../../lib/ocr/browserOcr';
 import { mergeReceiptReading } from '../../lib/ocr/receiptEvidence';
 import { ReceiptScanSession } from '../../lib/ocr/receiptScanSession';
 import { requestServerExtraction } from '../../lib/ocr/serverExtraction';
-import { clearReceiptDraft, loadReceiptDraft, saveReceiptDraft, type ReceiptDraft } from '../../lib/receiptDraft';
+import {
+  clearReceiptDraft,
+  clearReceiptPhoto,
+  loadReceiptDraft,
+  loadReceiptPhoto,
+  saveReceiptDraft,
+  saveReceiptPhoto,
+  type ReceiptDraft,
+} from '../../lib/receiptDraft';
 import { suggestWriteOff } from '../../lib/writeoffEngine';
 import { emptyExpense } from '../../lib/types';
 import { useWorkspace } from '../../context/WorkspaceContext';
@@ -140,15 +148,17 @@ export function SnapReceiptDialog({
   useEffect(() => {
     if (!open || phase !== 'review' || draftSaved.current) return;
     if (!merchant && !amount && !date) return;
-    saveReceiptDraft({
+    const draft = {
       merchant,
       amount,
       date,
       currency,
       notes,
       updatedAt: new Date().toISOString(),
-    });
-  }, [open, phase, merchant, amount, date, currency, notes]);
+    };
+    saveReceiptDraft(draft);
+    if (file) void saveReceiptPhoto(file, { name: file.name, type: file.type });
+  }, [open, phase, merchant, amount, date, currency, notes, file]);
 
   function markTouched(key: FieldKey) {
     userTouched.current[key] = true;
@@ -424,6 +434,7 @@ export function SnapReceiptDialog({
         );
         draftSaved.current = true;
         clearReceiptDraft();
+        void clearReceiptPhoto();
         setDraftOffer(null);
         showToast('Receipt attached to the matching expense.');
         const typed =
@@ -460,6 +471,7 @@ export function SnapReceiptDialog({
       await saveRecord(record, serverStoragePath ? null : file);
       draftSaved.current = true;
       clearReceiptDraft();
+      void clearReceiptPhoto();
       setDraftOffer(null);
       const typed =
         userTouched.current.merchant || userTouched.current.date || userTouched.current.amount;
@@ -522,20 +534,31 @@ export function SnapReceiptDialog({
 
         {phase === 'pick' && draftOffer && (
           <div className="notice" style={{ marginBottom: 12 }}>
-            Unsaved receipt details are still in this browser. They are not saved as an expense.
+            Unsaved receipt details are still in this browser. They are not saved as an expense,
+            and continuing does not send the photo again.
             <div className="inlinebuttons" style={{ marginTop: 10 }}>
               <button
                 type="button"
                 className="btn secondary"
                 onClick={() => {
-                  setMerchant(draftOffer.merchant);
-                  setAmount(draftOffer.amount);
-                  setDate(draftOffer.date);
-                  setCurrency(draftOffer.currency || 'USD');
-                  setNotes(draftOffer.notes);
-                  userTouched.current = { merchant: true, amount: true, date: true };
-                  setPhase('review');
-                  setDraftOffer(null);
+                  void (async () => {
+                    const photo = await loadReceiptPhoto();
+                    setMerchant(draftOffer.merchant);
+                    setAmount(draftOffer.amount);
+                    setDate(draftOffer.date);
+                    setCurrency(draftOffer.currency || 'USD');
+                    setNotes(draftOffer.notes);
+                    if (photo) {
+                      setFile(photo);
+                      setPreviewUrl((current) => {
+                        if (current) URL.revokeObjectURL(current);
+                        return URL.createObjectURL(photo);
+                      });
+                    }
+                    userTouched.current = { merchant: true, amount: true, date: true };
+                    setPhase('review');
+                    setDraftOffer(null);
+                  })();
                 }}
               >
                 Continue details
@@ -545,6 +568,7 @@ export function SnapReceiptDialog({
                 className="btn secondary"
                 onClick={() => {
                   clearReceiptDraft();
+                  void clearReceiptPhoto();
                   setDraftOffer(null);
                 }}
               >

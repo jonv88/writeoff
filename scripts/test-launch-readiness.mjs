@@ -212,7 +212,61 @@ try {
   assert.match(readFileSync('src/screens/AccountsScreen.tsx', 'utf8'), /Bank integration unavailable/);
   assert.doesNotMatch(readFileSync('src/lib/ocr/receiptTotals.ts', 'utf8'), /Walgreens|15\.97/);
 
-  console.log('PASS launch readiness: export, deletion, sandbox bank, entitlements, drafts, RLS');
+  const recovery = await server.ssrLoadModule('/src/lib/auth/recovery.ts');
+  assert.equal(recovery.isRecoveryCallback('https://preview.test/?type=recovery'), true);
+  assert.equal(recovery.isRecoveryCallback('https://preview.test/#access_token=abc&type=recovery'), true);
+  assert.equal(recovery.isRecoveryCallback('https://preview.test/#type=signup'), false);
+
+  const stripeBilling = await server.ssrLoadModule('/src/server/stripeBilling.ts');
+  const crypto = await import('node:crypto');
+  const secret = 'whsec_test_only';
+  const now = 1_700_000_000;
+  const payload = JSON.stringify({
+    id: 'evt_test_1',
+    type: 'checkout.session.completed',
+    created: now,
+    data: { object: { client_reference_id: 'customer-a', status: 'complete' } },
+  });
+  const signature = crypto.createHmac('sha256', secret).update(`${now}.${payload}`).digest('hex');
+  const header = `t=${now},v1=${signature}`;
+  const applied = stripeBilling.applyVerifiedStripeEvent({
+    payload,
+    header,
+    secret,
+    nowSec: now,
+    productId: 'writeoff-sandbox',
+    current: null,
+  });
+  assert.equal(applied.entitlement.state, 'active');
+  assert.equal(applied.event.ownerId, 'customer-a');
+  assert.throws(() => stripeBilling.applyVerifiedStripeEvent({
+    payload,
+    header: `t=${now},v1=00`,
+    secret,
+    nowSec: now,
+    productId: 'writeoff-sandbox',
+    current: null,
+  }), /rejected/);
+  assert.throws(() => stripeBilling.assertSandboxSecret('sk_live_secret'), /test secret/);
+  let called = 0;
+  const checkout = await stripeBilling.createSandboxCheckout({
+    secretKey: 'sk_test_example',
+    priceId: 'price_test_123',
+    ownerId: 'customer-a',
+    successUrl: 'https://preview.test/?checkout=return',
+    cancelUrl: 'https://preview.test/?checkout=cancel',
+    fetchImpl: async (url, init) => {
+      called += 1;
+      assert.equal(url, 'https://api.stripe.com/v1/checkout/sessions');
+      assert.match(String(init.body), /price_test_123/);
+      assert.match(String(init.headers.Authorization), /sk_test_example/);
+      return new Response(JSON.stringify({ url: 'https://checkout.stripe.com/c/pay/cs_test_123' }), { status: 200 });
+    },
+  });
+  assert.equal(called, 1);
+  assert.match(checkout.url, /cs_test_123/);
+
+  console.log('PASS launch readiness: export, deletion, sandbox bank, entitlements, drafts, RLS, billing');
 } finally {
   await new Promise((resolve) => http.close(resolve));
   await server.close();

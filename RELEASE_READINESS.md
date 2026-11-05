@@ -1,6 +1,10 @@
 # Writeoff — release readiness
 
-Date: 2026-11-05, America/New_York. Branch `cursor/veryfi-live-scan-9e74`. This is a development MVP with a private receipt preview. It is not an App Store release candidate.
+Date: 2026-11-05, America/New_York. Branch `cursor/veryfi-live-scan-9e74`. This is a development MVP with a private receipt preview. It is not a web launch and not an App Store or Play release.
+
+## Attempt counter
+
+Read from the private ledger without uploading a photo or calling Veryfi. Count is 2 of 3. One attempt remains and is reserved for a physical iPhone photo. Exiting a review does not change the counter.
 
 ## What a customer can do
 
@@ -8,14 +12,27 @@ On the local preview, without a bank or a subscription:
 
 - Start an empty workspace or load labeled sample expenses.
 - Snap or choose a receipt, review merchant, date, and amount, and save.
-- Keep an unsaved review as text in this browser and continue or discard it. The photo itself is not kept in that draft.
+- Keep an unsaved review, including the photo, in this browser and continue it without sending the photo again. Discard removes both. The photo is in origin-private IndexedDB, not a public URL.
 - Review Business, Personal, or Split suggestions. A pharmacy name alone does not become a medical tax suggestion.
 - Import a CSV, export a spreadsheet-safe CSV that separates the expense amount, business-use amount, and an eligible amount only when the customer checked it.
 - Reset the browser workspace. Signed-in deletion is implemented to run only after the server confirms, and it is separate from canceling a subscription.
 
 On the owner-protected private preview, Veryfi can fill a missing or uncertain field when the receipt text supports it. One document attempt remains and is reserved for a physical iPhone photo. Recorded responses are not live provider calls.
 
-A customer cannot yet create a cloud account in this environment, connect a bank, buy a subscription, or install an iOS build from this machine.
+A customer cannot yet create a cloud account, sync a phone with a desktop, buy a subscription, or install an iOS or Android build. Bank linking stays unavailable on purpose.
+
+## Checked here
+
+- Recorded receipt review still fills merchant, date, and 15.97, and continuing a closed review restores that photo without a second extraction request.
+- Postgres row-level security, run in-process and not on Rhev or RHEV Development: a second role cannot read or delete the first customer’s expense, receipt row, or receipt file.
+- Stripe test checkout refuses a live secret. A signed test webhook grants access; a bad signature does not. No Stripe API call was made.
+- Password recovery UI is ready for a Supabase recovery link. No reset email was sent.
+
+## Not checked
+
+- Hosted sign-up, email verification, password email, cloud save, or phone/desktop sync.
+- A browser Stripe checkout or a paid charge.
+- A physical iPhone scan.
 
 ## Template
 
