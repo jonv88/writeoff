@@ -29,6 +29,7 @@ export type VeryfiDocumentShape = {
   tip?: number | null;
   currency_code?: string | null;
   ocr_text?: string | null;
+  document_type?: string | null;
 };
 
 type DatedEvidence = {

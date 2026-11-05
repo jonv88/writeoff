@@ -16,20 +16,25 @@ export type ExtractEnv = {
   VERCEL_GIT_COMMIT_REF?: string;
   VERYFI_LIVE_CALLS?: string;
   VERYFI_PREVIEW_DOC_CAP?: string;
+  VERYFI_ALLOWED_SHA256?: string;
   VERYFI_CLIENT_ID?: string;
   VERYFI_USERNAME?: string;
   VERYFI_API_KEY?: string;
 };
 
-type CacheEntry = { hash: string; body: string };
+type CacheEntry = { hash: string; body: string; status: number };
 
 const idempotency = new Map<string, CacheEntry>();
-const byHash = new Map<string, string>();
+const byHash = new Map<string, CacheEntry>();
+const pending = new Set<string>();
+const counted = new Set<string>();
 let liveCount = 0;
 
 export function resetExtractGuards(): void {
   idempotency.clear();
   byHash.clear();
+  pending.clear();
+  counted.clear();
   liveCount = 0;
 }
 
@@ -97,9 +102,35 @@ function readingBody(doc: VeryfiDocumentShape, mode: 'live' | 'recorded', duplic
     provider: 'veryfi',
     mode,
     duplicate,
+    documentType: doc.document_type ?? null,
     ...reading,
     version: 'veryfi-evidence-2026.11.05',
   };
+}
+
+function allowedHashes(env: ExtractEnv): Set<string> | null {
+  const raw = (env.VERYFI_ALLOWED_SHA256 || '').trim();
+  if (!raw) return null;
+  return new Set(raw.split(',').map((item) => item.trim().toLowerCase()).filter(Boolean));
+}
+
+function remember(key: string, hash: string, status: number, body: string): Response {
+  const entry = { hash, body, status };
+  idempotency.set(key, entry);
+  byHash.set(hash, entry);
+  return new Response(body, { status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } });
+}
+
+function replay(entry: CacheEntry): Response {
+  if (entry.status !== 200) {
+    return new Response(entry.body, { status: entry.status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } });
+  }
+  const parsed = JSON.parse(entry.body) as { duplicate?: boolean };
+  parsed.duplicate = true;
+  return new Response(JSON.stringify(parsed), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
+  });
 }
 
 export async function handleExtractReceipt(
@@ -139,14 +170,14 @@ export async function handleExtractReceipt(
   if (priorKey && priorKey.hash !== hash) {
     return failure(409, 'That request id was already used for a different photo.');
   }
-  if (priorKey) return new Response(priorKey.body, { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } });
+  if (priorKey) return replay(priorKey);
   const cached = byHash.get(hash);
   if (cached) {
-    idempotency.set(idempotencyKey, { hash, body: cached });
-    const parsed = JSON.parse(cached) as { duplicate?: boolean };
-    parsed.duplicate = true;
-    const body = JSON.stringify(parsed);
-    return new Response(body, { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } });
+    idempotency.set(idempotencyKey, cached);
+    return replay(cached);
+  }
+  if (pending.has(hash)) {
+    return failure(409, 'That photo is already being read. Wait for the first result.');
   }
 
   let document: VeryfiDocumentShape;
@@ -158,31 +189,42 @@ export async function handleExtractReceipt(
       if (!recorded) return failure(422, 'No receipt reading is available for this photo.');
       document = recorded;
     } else if (env.VERYFI_LIVE_CALLS !== '1') {
-      return failure(503, 'Live receipt reading is off until the free allowance is confirmed.');
-    } else if (options?.processDocument) {
-      const cap = Number(env.VERYFI_PREVIEW_DOC_CAP || DEFAULT_DOC_CAP);
-      if (!Number.isFinite(cap) || liveCount >= cap) {
-        return failure(429, 'This preview has reached its receipt reading limit.');
-      }
-      document = await options.processDocument(bytes, mime);
-      liveCount += 1;
-      mode = 'live';
+      return failure(503, 'Live receipt reading is turned off.');
     } else {
-      const cap = Number(env.VERYFI_PREVIEW_DOC_CAP || DEFAULT_DOC_CAP);
-      if (!Number.isFinite(cap) || liveCount >= cap) {
+      const allow = allowedHashes(env);
+      if (allow && !allow.has(hash)) {
         return failure(429, 'This preview has reached its receipt reading limit.');
       }
-      const credentials: VeryfiCredentials = {
-        clientId: env.VERYFI_CLIENT_ID || '',
-        username: env.VERYFI_USERNAME || '',
-        apiKey: env.VERYFI_API_KEY || '',
-      };
-      if (!credentials.clientId || !credentials.username || !credentials.apiKey) {
-        return failure(503, 'Live receipt reading is off until the free allowance is confirmed.');
+      const cap = Number(env.VERYFI_PREVIEW_DOC_CAP || DEFAULT_DOC_CAP);
+      if (!counted.has(hash) && (!Number.isFinite(cap) || cap < 1 || liveCount >= cap)) {
+        return failure(429, 'This preview has reached its receipt reading limit.');
       }
-      document = await processVeryfiDocument(bytes, mime, credentials);
-      liveCount += 1;
+      if (!counted.has(hash)) {
+        counted.add(hash);
+        liveCount += 1;
+      }
+      pending.add(hash);
       mode = 'live';
+      try {
+        if (options?.processDocument) {
+          document = await options.processDocument(bytes, mime);
+        } else {
+          const credentials: VeryfiCredentials = {
+            clientId: env.VERYFI_CLIENT_ID || '',
+            username: env.VERYFI_USERNAME || '',
+            apiKey: env.VERYFI_API_KEY || '',
+          };
+          if (!credentials.clientId || !credentials.username || !credentials.apiKey) {
+            counted.delete(hash);
+            liveCount -= 1;
+            pending.delete(hash);
+            return failure(503, 'Live receipt reading is turned off.');
+          }
+          document = await processVeryfiDocument(bytes, mime, credentials, fetch, hash);
+        }
+      } finally {
+        pending.delete(hash);
+      }
     }
   } catch (err) {
     const message = err instanceof VeryfiRequestError
@@ -192,10 +234,5 @@ export async function handleExtractReceipt(
   }
 
   const body = JSON.stringify(readingBody(document, mode, false));
-  idempotency.set(idempotencyKey, { hash, body });
-  byHash.set(hash, body);
-  return new Response(body, {
-    status: 200,
-    headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
-  });
+  return remember(idempotencyKey, hash, 200, body);
 }

@@ -11,7 +11,9 @@ try {
   const handlerMod = await server.ssrLoadModule('/src/server/extractReceiptHandler.ts');
   const { resolveVeryfiDocument, mergeReceiptReading, resolveUsDate, evidenceDate } = evidence;
   const { parseTotalFromText } = totals;
-  const { handleExtractReceipt, resetExtractGuards } = handlerMod;
+  const liveMod = await server.ssrLoadModule('/src/server/veryfiLive.ts');
+  const { handleExtractReceipt, resetExtractGuards, liveDocumentCount } = handlerMod;
+  const { processVeryfiDocument } = liveMod;
 
   assert.equal(parseTotalFromText('TIP 3.50\nAMOUNT PAID 29.30').total, 29.3);
   assert.equal(parseTotalFromText('YOU SAVED 48.00\nAMOUNT DUE 23.76').total, 23.76);
@@ -156,7 +158,7 @@ try {
   const offBody = await off.json();
   assert.equal(offBody.merchant, null);
   assert.equal(offBody.total, null);
-  assert.match(offBody.message, /free allowance/);
+  assert.match(offBody.message, /turned off/);
 
   resetExtractGuards();
   const wrongBranch = await post(jpeg, {}, {
@@ -203,6 +205,84 @@ try {
   const notImage = await post(Uint8Array.from([1, 2, 3, 4, 5, 6, 7, 8, 9]), { key: 'idem-key-9' }, options);
   assert.equal(notImage.status, 415);
   assert.equal(processed, 2);
+
+  resetExtractGuards();
+  const digest = await crypto.subtle.digest('SHA-256', jpeg);
+  const jpegHash = [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, '0')).join('');
+  let allowedCalls = 0;
+  const blocked = await post(jpeg, { key: 'allow-key-1' }, {
+    env: { VERYFI_LIVE_CALLS: '1', VERYFI_ALLOWED_SHA256: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' },
+    processDocument: async () => {
+      allowedCalls += 1;
+      return { ocr_text: 'TOTAL 1.00' };
+    },
+  });
+  assert.equal(blocked.status, 429);
+  assert.equal(allowedCalls, 0);
+  const allowed = await post(jpeg, { key: 'allow-key-2' }, {
+    env: { VERYFI_LIVE_CALLS: '1', VERYFI_ALLOWED_SHA256: jpegHash, VERYFI_PREVIEW_DOC_CAP: '1' },
+    processDocument: async () => {
+      allowedCalls += 1;
+      return { vendor: { raw_name: 'Walmart' }, date: '2026-11-01', total: 19.9, ocr_text: 'Walmart\nTOTAL 19.90', document_type: 'receipt' };
+    },
+  });
+  const allowedBody = await allowed.json();
+  assert.equal(allowed.status, 200);
+  assert.equal(allowedBody.documentType, 'receipt');
+  assert.equal(allowedCalls, 1);
+  const outside = await post(Uint8Array.from([...jpeg, 7]), { key: 'allow-key-3' }, {
+    env: { VERYFI_LIVE_CALLS: '1', VERYFI_ALLOWED_SHA256: jpegHash, VERYFI_PREVIEW_DOC_CAP: '6' },
+    processDocument: async () => {
+      allowedCalls += 1;
+      return { ocr_text: 'TOTAL 1.00' };
+    },
+  });
+  assert.equal(outside.status, 429);
+  assert.equal(allowedCalls, 1);
+
+  resetExtractGuards();
+  let attempts = 0;
+  const flaky = {
+    env: { VERYFI_LIVE_CALLS: '1', VERYFI_PREVIEW_DOC_CAP: '1' },
+    processDocument: async () => {
+      attempts += 1;
+      if (attempts === 1) throw new Error('timeout');
+      return { vendor: { raw_name: 'Walmart' }, date: '2026-11-01', total: 19.9, ocr_text: 'TOTAL 19.90' };
+    },
+  };
+  const failed = await post(jpeg, { key: 'retry-key-1' }, flaky);
+  assert.equal(failed.status, 502);
+  const retried = await post(jpeg, { key: 'retry-key-2' }, flaky);
+  assert.equal(retried.status, 200);
+  assert.equal(attempts, 2);
+  assert.equal(liveDocumentCount(), 1);
+  const seventh = await post(Uint8Array.from([...jpeg, 4]), { key: 'retry-key-3' }, flaky);
+  assert.equal(seventh.status, 429);
+  assert.equal(attempts, 2);
+
+  let seenKey = '';
+  let boost = null;
+  const provider = await processVeryfiDocument(
+    jpeg,
+    'image/jpeg',
+    { clientId: 'test-client', username: 'test-user', apiKey: 'test-key' },
+    async (_url, init) => {
+      seenKey = init.headers['Idempotency-Key'];
+      boost = JSON.parse(init.body).boost_mode;
+      return new Response(JSON.stringify({
+        vendor: { name: 'Walmart' },
+        date: '2026-11-01',
+        total: 19.9,
+        ocr_text: 'TOTAL 19.90',
+        document_type: { value: 'receipt' },
+      }), { status: 201 });
+    },
+    jpegHash,
+  );
+  assert.equal(seenKey, jpegHash);
+  assert.equal(boost, false);
+  assert.equal(provider.document_type, 'receipt');
+  assert.equal(provider.vendor.name, 'Walmart');
 
   console.log('PASS receipt evidence, upload guards, and recorded provider readings');
 } finally {
