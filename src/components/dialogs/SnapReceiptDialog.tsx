@@ -2,9 +2,45 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { categoryFor, uid } from '../../lib/core';
 import { extractReceipt } from '../../lib/ocr/adapter';
 import { formatOcrAmount } from '../../lib/ocr/browserOcr';
+import {
+  LIVE_VERYFI_BLOCK_REASON,
+  LIVE_VERYFI_CALLS_ENABLED,
+  applyMockFallback,
+  type FieldSnapshot,
+  type MockCaseId,
+} from '../../lib/ocr/veryfiMockFallback';
 import { suggestWriteOff } from '../../lib/writeoffEngine';
 import { emptyExpense } from '../../lib/types';
 import { useWorkspace } from '../../context/WorkspaceContext';
+
+const SESSION_KEY = 'writeoff.mockVeryfiSession.v1';
+
+type MockSession = {
+  snaps: number;
+  reviews: number;
+  savesWithoutTyping: number;
+  fieldsLeftForReview: number;
+};
+
+function readSession(): MockSession {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    if (!raw) return { snaps: 0, reviews: 0, savesWithoutTyping: 0, fieldsLeftForReview: 0 };
+    const parsed = JSON.parse(raw) as Partial<MockSession>;
+    return {
+      snaps: Number(parsed.snaps) || 0,
+      reviews: Number(parsed.reviews) || 0,
+      savesWithoutTyping: Number(parsed.savesWithoutTyping) || 0,
+      fieldsLeftForReview: Number(parsed.fieldsLeftForReview) || 0,
+    };
+  } catch {
+    return { snaps: 0, reviews: 0, savesWithoutTyping: 0, fieldsLeftForReview: 0 };
+  }
+}
+
+function writeSession(next: MockSession) {
+  localStorage.setItem(SESSION_KEY, JSON.stringify(next));
+}
 
 type Phase = 'pick' | 'reading' | 'review';
 type PipelineState = 'idle' | 'photo_attached' | 'reading' | 'details_filled' | 'needs_manual';
@@ -27,6 +63,12 @@ export function SnapReceiptDialog({
     merchant: false,
     amount: false,
     date: false,
+  });
+  const tesseractSnap = useRef<FieldSnapshot>({
+    merchant: '',
+    date: '',
+    amount: '',
+    uncertain: ['merchant', 'date', 'total'],
   });
 
   const [phase, setPhase] = useState<Phase>('pick');
@@ -55,6 +97,8 @@ export function SnapReceiptDialog({
   >('none');
   const [extractionVersion, setExtractionVersion] = useState('');
   const [captureHint, setCaptureHint] = useState('');
+  const [mockNote, setMockNote] = useState('');
+  const [session, setSession] = useState<MockSession>(() => readSession());
 
   useEffect(() => {
     const el = ref.current;
@@ -79,7 +123,9 @@ export function SnapReceiptDialog({
       setExtractionStatus('none');
       setExtractionVersion('');
       setCaptureHint('');
+      setMockNote('');
       userTouched.current = { merchant: false, amount: false, date: false };
+      tesseractSnap.current = { merchant: '', date: '', amount: '', uncertain: ['merchant', 'date', 'total'] };
       if (cameraInputRef.current) cameraInputRef.current.value = '';
       if (fileInputRef.current) fileInputRef.current.value = '';
       el.showModal();
@@ -131,6 +177,19 @@ export function SnapReceiptDialog({
       uncertainNext.push('total');
     }
     const uniqueUncertain = [...new Set(uncertainNext)];
+    const nextMerchant = userTouched.current.merchant ? merchant : result.merchant?.trim() || '';
+    const nextDate = userTouched.current.date ? date : result.date || '';
+    const nextAmount = userTouched.current.amount
+      ? amount
+      : result.total != null
+        ? formatOcrAmount(result.total)
+        : '';
+    tesseractSnap.current = {
+      merchant: nextMerchant,
+      date: nextDate,
+      amount: nextAmount,
+      uncertain: uniqueUncertain,
+    };
     setUncertain(uniqueUncertain);
     setFieldHints({
       merchant:
@@ -151,6 +210,37 @@ export function SnapReceiptDialog({
       setPipeline('needs_manual');
     }
     setStatusMsg(result.message || 'Review the details before saving.');
+    setMockNote('');
+  }
+
+  function bumpSession(patch: (prev: MockSession) => MockSession) {
+    setSession((prev) => {
+      const next = patch(prev);
+      writeSession(next);
+      return next;
+    });
+  }
+
+  function applyMockCase(id: MockCaseId) {
+    if (LIVE_VERYFI_CALLS_ENABLED) {
+      setError(LIVE_VERYFI_BLOCK_REASON);
+      return;
+    }
+    const result = applyMockFallback({
+      id,
+      tesseract: tesseractSnap.current,
+      current: { merchant, date, amount },
+      userEdited: { ...userTouched.current },
+    });
+    setMerchant(result.merchant);
+    setDate(result.date);
+    setAmount(result.amount);
+    setUncertain(result.uncertain);
+    setFieldHints(result.fieldHints);
+    setStatusMsg(result.message);
+    setMockNote(result.label);
+    setPipeline(result.leftForReview.length ? 'needs_manual' : 'details_filled');
+    setError('');
   }
 
   async function acceptFile(f: File | undefined, source: 'camera' | 'file') {
@@ -171,6 +261,7 @@ export function SnapReceiptDialog({
     setPipeline('photo_attached');
     setStatusMsg('Photo attached');
     setFile(f);
+    setMockNote('');
 
     const draftId = uid();
     setPipeline('reading');
@@ -214,6 +305,7 @@ export function SnapReceiptDialog({
 
     applyOcrToForm(result);
     setPhase('review');
+    bumpSession((prev) => ({ ...prev, snaps: prev.snaps + 1, reviews: prev.reviews + 1 }));
 
     if (result.merchant && result.date && result.total != null) {
       const hit = records.find(
@@ -286,6 +378,13 @@ export function SnapReceiptDialog({
           serverStoragePath ? null : file,
         );
         showToast('Receipt attached to the matching expense.');
+        const typed =
+          userTouched.current.merchant || userTouched.current.date || userTouched.current.amount;
+        bumpSession((prev) => ({
+          ...prev,
+          savesWithoutTyping: prev.savesWithoutTyping + (typed ? 0 : 1),
+          fieldsLeftForReview: prev.fieldsLeftForReview + uncertain.length,
+        }));
         onClose();
         return;
       }
@@ -311,6 +410,13 @@ export function SnapReceiptDialog({
         receipt: receiptMeta,
       });
       await saveRecord(record, serverStoragePath ? null : file);
+      const typed =
+        userTouched.current.merchant || userTouched.current.date || userTouched.current.amount;
+      bumpSession((prev) => ({
+        ...prev,
+        savesWithoutTyping: prev.savesWithoutTyping + (typed ? 0 : 1),
+        fieldsLeftForReview: prev.fieldsLeftForReview + uncertain.length,
+      }));
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save.');
@@ -352,9 +458,17 @@ export function SnapReceiptDialog({
         <p>Photograph or choose a receipt. No bank connection required.</p>
         {browserMode && phase === 'pick' && (
           <div className="notice" style={{ marginBottom: 12 }}>
-            On-device scan — review merchant, date, and amount before saving.
+            On-device scan — review merchant, date, and amount before saving. Live Veryfi is off.
+            After review, labeled mock buttons can fill a field only when redacted evidence supports
+            it. Your photo is not sent.
           </div>
         )}
+        <p className="formhint">
+          Private test: snap a chain, an independent merchant, and a restaurant with a tip. Use fresh
+          redacted or synthetic receipts. Session on this device: {session.snaps} snapped ·{' '}
+          {session.reviews} reviewed · {session.savesWithoutTyping} saved without typing ·{' '}
+          {session.fieldsLeftForReview} fields left for review.
+        </p>
 
         {phase === 'pick' && (
           <div className="importbox">
@@ -475,6 +589,26 @@ export function SnapReceiptDialog({
               </p>
             )}
             {captureHint && <p className="formhint">{captureHint}</p>}
+            <div className="notice">
+              <strong>Mock Veryfi — live calls are off.</strong> These use redacted samples. The
+              receipt photo stays on this device and is not sent for processing. {LIVE_VERYFI_BLOCK_REASON}
+            </div>
+            {mockNote && (
+              <p className="formhint">
+                <strong>{mockNote}.</strong> This is a mock result, not a live Veryfi response.
+              </p>
+            )}
+            <div className="inlinebuttons">
+              <button type="button" className="btn secondary" onClick={() => applyMockCase('supported-total')}>
+                Mock: supported total
+              </button>
+              <button type="button" className="btn secondary" onClick={() => applyMockCase('conflicting-total')}>
+                Mock: conflicting totals
+              </button>
+              <button type="button" className="btn secondary" onClick={() => applyMockCase('ambiguous-date')}>
+                Mock: ambiguous date
+              </button>
+            </div>
             <div className="row">
               <label>
                 Merchant

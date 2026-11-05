@@ -13,6 +13,7 @@
     "test:suggestions": "node scripts/test-suggestions.mjs",
     "verify:receipt-flow": "node scripts/verify-receipt-flow.mjs",
     "test:ocr-parse": "node scripts/test-browser-ocr-parse.mjs",
+    "test:veryfi-mock": "node scripts/test-veryfi-mock-fallback.mjs",
     "eval:receipt-reliability": "node scripts/eval-receipt-reliability.mjs",
     "migrations:print": "bash scripts/apply-migrations.sh",
     "cap:sync": "npm run build && npx cap sync ios",
