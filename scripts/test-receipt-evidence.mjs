@@ -26,6 +26,11 @@ try {
   assert.equal(parseTotalFromText('TOTAL\n4.92\nCASH TENDERED\n5.00\nCHANGE\n0.08').total, 4.92);
   assert.equal(parseTotalFromText('REWARDS BALANCE\n48.20\nTOTAL\n12.34').total, 12.34);
   assert.equal(parseTotalFromText('TOTAL\n12.50\nGRAND TOTAL\n15.00\nAMOUNT DUE\n11.00').total, null);
+  assert.equal(
+    parseTotalFromText('SUBTOTAL 14.98\nTAX 0.99\nTOTAL 15.97\nROUNDING 0.02\nCASH 20.00\nCHANGE 4.05\nCASH 0.87\nBALANCE 0.73').total,
+    15.97,
+  );
+  assert.equal(parseTotalFromText('****BALANCE 25.96').total, 25.96);
   const structuredCash = explainTotal('TOTAL\n4.92\nCASH TENDERED\n5.00\nCHANGE\n0.08', { structured: { total: 5 } });
   assert.equal(structuredCash.total, 4.92);
   assert.equal(structuredCash.reason, 'accepted-next-line');
@@ -128,6 +133,26 @@ try {
   const rewards = resolveVeryfiDocument(JSON.parse(readFileSync('fixtures/veryfi-recorded/rewards-balance.json', 'utf8')));
   assert.equal(rewards.total, 12.34);
   assert.equal(rewards.merchant, 'Harbor Books');
+  const retained = resolveVeryfiDocument(JSON.parse(readFileSync('fixtures/veryfi-recorded/labeled-total-with-balance.json', 'utf8')));
+  assert.equal(retained.total, 15.97);
+  assert.equal(retained.totalTrace.reason, 'accepted-same-line');
+  assert.equal(retained.merchant, 'Market Street');
+  assert.equal(retained.date, '2026-11-04');
+  const retainedForm = mergeReceiptReading({
+    local: {
+      merchant: null,
+      date: null,
+      total: null,
+      currency: 'USD',
+      uncertainFields: ['merchant', 'date', 'total'],
+      status: 'needs_details',
+      message: 'Some fields need a quick check before saving.',
+    },
+    remote: retained,
+  });
+  assert.equal(retainedForm.total, 15.97);
+  assert.equal(retainedForm.merchant, 'Market Street');
+  assert.equal(retainedForm.date, '2026-11-04');
   const edited = mergeReceiptReading({
     local: {
       merchant: 'Pine Grocery',

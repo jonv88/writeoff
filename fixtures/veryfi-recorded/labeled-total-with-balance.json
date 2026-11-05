@@ -1,0 +1,11 @@
+{
+  "note": "Recorded shape matching a retained total conflict: explicit TOTAL plus a separate BALANCE. Not a live response and not a named store receipt.",
+  "vendor": { "name": "Market Street", "raw_name": "Market Street" },
+  "date": "2026-11-04",
+  "total": 0.73,
+  "subtotal": 14.98,
+  "tax": 0.99,
+  "rounding": 0.02,
+  "currency_code": "USD",
+  "ocr_text": "Market Street\nSUBTOTAL 14.98\nTAX 0.99\nTOTAL 15.97\nROUNDING 0.02\nCASH 20.00\nCHANGE 4.05\nCASH 0.87\nBALANCE 0.73\nNovember 4, 2026"
+}

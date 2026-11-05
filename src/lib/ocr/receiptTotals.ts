@@ -233,11 +233,12 @@ function decideHits(collected: Collected): TotalTrace & { total: number | null; 
       evidence,
     };
   }
-  const ordered = [...hits].sort((a, b) => b.priority - a.priority);
+  const stronger = hits.filter((hit) => hit.priority >= 70);
+  const ordered = [...(stronger.length ? stronger : hits)].sort((a, b) => b.priority - a.priority);
   const topPriority = ordered[0].priority;
   const top = ordered.filter((hit) => hit.priority === topPriority);
   const topValues = [...new Set(top.map((hit) => cents(hit.value)))];
-  const finalValues = [...new Set(ordered.filter((hit) => hit.priority >= 65).map((hit) => cents(hit.value)))];
+  const finalValues = [...new Set(ordered.map((hit) => cents(hit.value)))];
   if (topValues.length !== 1 || (finalValues.length > 1 && topPriority < 95)) {
     return {
       total: null,
