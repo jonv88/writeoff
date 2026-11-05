@@ -157,6 +157,16 @@ function hasValue(value: string): boolean {
   return value.trim() !== '';
 }
 
+/** Describes the form field, not the mock evidence. "Filled" only when the value changes. */
+function fieldNotice(name: 'Merchant' | 'Date' | 'Amount', before: string, after: string, forReview: boolean): string {
+  const previous = before.trim();
+  const next = after.trim();
+  if (next !== previous && next !== '') return `${name} filled.`;
+  if (previous !== '' && next === previous) return `Existing ${name.toLowerCase()} kept.`;
+  if (forReview || next === '') return `${name} left for review.`;
+  return `${name} filled.`;
+}
+
 function reliable(value: string, field: 'merchant' | 'date' | 'total', uncertain: string[]): boolean {
   return hasValue(value) && !uncertain.includes(field);
 }
@@ -230,18 +240,12 @@ export function applyMockFallback(input: {
 
   const review = [...uncertain];
   const hints = fieldHintsFor(review);
-  const evidenceNote =
-    input.id === 'supported-total'
-      ? 'Redacted evidence supports 18.40.'
-      : input.id === 'conflicting-total'
-        ? 'Redacted evidence lists conflicting totals 12.50, 15.00, and 11.00, so 15.00 was not accepted.'
-        : 'Redacted evidence date 11/02/2026 can be read as 2026-11-02 or 2026-02-11, so no date was accepted.';
-  const reviewSentence = leftForReview.length
-    ? `${leftForReview.join(' and ')} left for review.`
-    : 'No field left for review.';
-  const keptSentence = preserved.length ? ` Kept ${preserved.join(', ')}.` : '';
-  const filledSentence = accepted.length ? ` Filled ${accepted.join(', ')} from redacted mock evidence.` : '';
-  const message = `${mock.label}. Live Veryfi is off and the photo was not sent. ${evidenceNote}${filledSentence}${keptSentence} ${reviewSentence}`;
+  const formNotes = [
+    fieldNotice('Merchant', input.current.merchant, merchant, leftForReview.includes('merchant')),
+    fieldNotice('Date', input.current.date, date, leftForReview.includes('date')),
+    fieldNotice('Amount', input.current.amount, amount, leftForReview.includes('amount')),
+  ];
+  const message = `${mock.label}. Live Veryfi is off and the photo was not sent. ${formNotes.join(' ')}`;
 
   return {
     live: false,

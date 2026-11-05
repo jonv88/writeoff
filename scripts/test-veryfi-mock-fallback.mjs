@@ -36,7 +36,10 @@ try {
   assert.ok(supported.preserved.includes('on-device date'));
   assert.match(supported.message, /photo was not sent/i);
   assert.match(supported.message, /Mock: supported total/);
-  assert.match(supported.message, /Redacted evidence supports 18\.40/);
+  assert.match(supported.message, /Amount filled\./);
+  assert.doesNotMatch(supported.message, /Existing amount kept/);
+  assert.match(supported.message, /Existing merchant kept/);
+  assert.match(supported.message, /Existing date kept/);
 
   const keptPaid = applyMockFallback({
     id: 'supported-total',
@@ -45,8 +48,8 @@ try {
     userEdited: untouched,
   });
   assert.equal(keptPaid.amount, '4.90');
-  assert.match(keptPaid.message, /Redacted evidence supports 18\.40/);
-  assert.match(keptPaid.message, /on-device amount/);
+  assert.match(keptPaid.message, /Existing amount kept\./);
+  assert.doesNotMatch(keptPaid.message, /Amount filled/);
 
   const edited = applyMockFallback({
     id: 'supported-total',
@@ -59,6 +62,10 @@ try {
   assert.equal(edited.amount, '9.00');
   assert.deepEqual(edited.accepted, []);
   assert.deepEqual(edited.leftForReview, []);
+  assert.match(edited.message, /Existing amount kept\./);
+  assert.match(edited.message, /Existing date kept\./);
+  assert.match(edited.message, /Existing merchant kept\./);
+  assert.doesNotMatch(edited.message, /Amount filled/);
 
   const conflict = applyMockFallback({
     id: 'conflicting-total',
@@ -72,7 +79,9 @@ try {
   assert.ok(conflict.leftForReview.includes('amount'));
   assert.ok(!conflict.accepted.includes('amount'));
   assert.notEqual(conflict.amount, '15.00');
-  assert.match(conflict.message, /15\.00 was not accepted/);
+  assert.match(conflict.message, /Amount left for review\./);
+  assert.doesNotMatch(conflict.message, /Amount filled/);
+  assert.match(conflict.message, /Date filled\./);
 
   const conflictKeepsPaid = applyMockFallback({
     id: 'conflicting-total',
@@ -83,6 +92,18 @@ try {
   assert.equal(conflictKeepsPaid.amount, '25.96');
   assert.equal(conflictKeepsPaid.date, '2026-11-02');
   assert.deepEqual(conflictKeepsPaid.leftForReview, []);
+  assert.match(conflictKeepsPaid.message, /Existing amount kept\./);
+  assert.doesNotMatch(conflictKeepsPaid.message, /Amount filled/);
+
+  const conflictEdited = applyMockFallback({
+    id: 'conflicting-total',
+    tesseract: { merchant: 'ACME', date: '2026-11-02', amount: '25.96', uncertain: [] },
+    current: { merchant: 'ACME', date: '2026-11-02', amount: '1.00' },
+    userEdited: { merchant: false, date: false, amount: true },
+  });
+  assert.equal(conflictEdited.amount, '1.00');
+  assert.match(conflictEdited.message, /Existing amount kept\./);
+  assert.doesNotMatch(conflictEdited.message, /Amount filled/);
 
   const ambiguous = applyMockFallback({
     id: 'ambiguous-date',
@@ -93,8 +114,35 @@ try {
   assert.equal(ambiguous.date, '');
   assert.equal(ambiguous.amount, '25.37');
   assert.ok(ambiguous.leftForReview.includes('date'));
-  assert.match(ambiguous.message, /11\/02\/2026/);
-  assert.match(ambiguous.message, /no date was accepted/);
+  assert.match(ambiguous.message, /Date left for review\./);
+  assert.match(ambiguous.message, /Amount filled\./);
+  assert.doesNotMatch(ambiguous.message, /Date filled/);
+
+  const ambiguousKept = applyMockFallback({
+    id: 'ambiguous-date',
+    tesseract: { merchant: 'DEMO COFFEE CO', date: '2026-10-21', amount: '4.90', uncertain: [] },
+    current: { merchant: 'DEMO COFFEE CO', date: '2026-10-21', amount: '4.90' },
+    userEdited: untouched,
+  });
+  assert.equal(ambiguousKept.date, '2026-10-21');
+  assert.equal(ambiguousKept.amount, '4.90');
+  assert.match(ambiguousKept.message, /Existing date kept\./);
+  assert.match(ambiguousKept.message, /Existing amount kept\./);
+  assert.doesNotMatch(ambiguousKept.message, /Date filled/);
+  assert.doesNotMatch(ambiguousKept.message, /Amount filled/);
+
+  const ambiguousEdited = applyMockFallback({
+    id: 'ambiguous-date',
+    tesseract: { merchant: 'DEMO COFFEE CO', date: '2026-10-21', amount: '4.90', uncertain: [] },
+    current: { merchant: 'DEMO COFFEE CO', date: '2026-01-15', amount: '1.00' },
+    userEdited: { merchant: false, date: true, amount: true },
+  });
+  assert.equal(ambiguousEdited.date, '2026-01-15');
+  assert.equal(ambiguousEdited.amount, '1.00');
+  assert.match(ambiguousEdited.message, /Existing date kept\./);
+  assert.match(ambiguousEdited.message, /Existing amount kept\./);
+  assert.doesNotMatch(ambiguousEdited.message, /Date filled/);
+  assert.doesNotMatch(ambiguousEdited.message, /Amount filled/);
   assert.equal(evidenceDate(MOCK_VERYFI_RESPONSES['ambiguous-date'].evidenceText).ambiguous, true);
   assert.equal(evidenceDate('November 3, 2026').date, '2026-11-03');
   assert.equal(evidenceDate('2026-11-02').date, '2026-11-02');
