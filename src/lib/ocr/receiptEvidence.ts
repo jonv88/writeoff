@@ -20,6 +20,8 @@ export type ReceiptReading = {
   fieldHints: { merchant?: string; date?: string; total?: string };
   message: string;
   status: 'ready' | 'needs_details' | 'failed';
+  /** Descriptions from the receipt. Amounts stay out of this list. */
+  items?: { name: string }[];
 };
 
 export type VeryfiDocumentShape = {
@@ -30,6 +32,7 @@ export type VeryfiDocumentShape = {
   currency_code?: string | null;
   ocr_text?: string | null;
   document_type?: string | null;
+  line_items?: { description?: string | null }[] | null;
 };
 
 type DatedEvidence = {
@@ -181,7 +184,12 @@ export function resolveVeryfiDocument(doc: VeryfiDocumentShape): ReceiptReading 
   const message = uncertain.length
     ? 'Some fields need a quick check before saving.'
     : 'Review the details before saving.';
-  return readingFrom({ merchant, date, total, currency, uncertain, message });
+  const items = (doc.line_items || [])
+    .map((item) => (item.description || '').replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .slice(0, 40)
+    .map((name) => ({ name }));
+  return { ...readingFrom({ merchant, date, total, currency, uncertain, message }), items };
 }
 
 type LocalReading = {
@@ -258,5 +266,6 @@ export function mergeReceiptReading(input: {
     }),
     provider: remote ? 'veryfi' : local.provider || 'tesseract.js',
     version: remote ? 'veryfi-evidence-2026.11.05' : local.version || 'browser-tesseract',
+    items: remote?.items || [],
   };
 }

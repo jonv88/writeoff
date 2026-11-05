@@ -60,6 +60,10 @@ export async function requestServerExtraction(file: File): Promise<ServerExtract
       fieldHints: payload.fieldHints || {},
       message: payload.message,
       status: payload.status,
+      items: (payload.items || [])
+        .map((item) => ({ name: item.name?.replace(/\s+/g, ' ').trim() || '' }))
+        .filter((item) => item.name)
+        .slice(0, 40),
       provider: 'veryfi',
       version: payload.version || 'veryfi-evidence-2026.11.05',
       mode: payload.mode || 'live',

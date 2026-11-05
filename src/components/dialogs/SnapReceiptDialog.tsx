@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { categoryFor, uid } from '../../lib/core';
+import { uid } from '../../lib/core';
 import { extractReceipt } from '../../lib/ocr/adapter';
 import { formatOcrAmount } from '../../lib/ocr/browserOcr';
 import { mergeReceiptReading } from '../../lib/ocr/receiptEvidence';
@@ -72,6 +72,7 @@ export function SnapReceiptDialog({
   const [date, setDate] = useState('');
   const [currency, setCurrency] = useState('USD');
   const [notes, setNotes] = useState('');
+  const [purchaseItems, setPurchaseItems] = useState<{ name: string }[]>([]);
   const [uncertain, setUncertain] = useState<string[]>([]);
   const [fieldHints, setFieldHints] = useState<{
     merchant?: string;
@@ -211,6 +212,7 @@ export function SnapReceiptDialog({
     setAmount('');
     setDate('');
     setCurrency('USD');
+    setPurchaseItems([]);
     setUncertain([]);
     setFieldHints({});
     setMatchId('');
@@ -262,6 +264,7 @@ export function SnapReceiptDialog({
         setExtractionVersion(remote.reading.version);
         setExtractionStatus(remote.reading.status);
         setProviderLine(remote.reused ? 'Veryfi already processed this photo.' : 'Veryfi processed this photo.');
+        setPurchaseItems(remote.reading.items || []);
         applyOcrToForm(remote.reading);
         setPhase('review');
         setPipeline(remote.reading.uncertainFields.length ? 'needs_manual' : 'details_filled');
@@ -328,6 +331,7 @@ export function SnapReceiptDialog({
         : 'Veryfi did not process this photo.',
     );
     if (!remote.ok) setError('');
+    setPurchaseItems(merged.items || []);
     applyOcrToForm(merged);
 
     if (merged.merchant && merged.date && merged.total != null) {
@@ -341,13 +345,13 @@ export function SnapReceiptDialog({
     }
   }
 
-  const draftCategory = categoryFor(merchant);
   const suggestion = suggestWriteOff(
     {
       merchant,
-      category: draftCategory,
+      category: '',
       type: 'Unsorted',
       notes,
+      items: purchaseItems,
       reviewed: false,
       treatmentSource: 'suggestion',
       percent: 0,
@@ -420,7 +424,7 @@ export function SnapReceiptDialog({
         date,
         category: suggestion.category,
         type: 'Unsorted',
-        notes: notes.trim(),
+        notes: notes.trim() || purchaseItems.map((item) => item.name).join(', '),
         source: 'Receipt capture',
         treatmentSource: 'suggestion',
         // Eligible % is never set from OCR — stays 0 until the user reviews.
@@ -693,7 +697,8 @@ export function SnapReceiptDialog({
             </label>
             <div className="suggestion">
               <strong>✧ {suggestion.label}</strong>
-              {suggestion.reason}
+              <div>{suggestion.reason}</div>
+              {suggestion.question ? <div>{suggestion.question}</div> : null}
               <div className="ruleline">
                 {suggestion.category} · {suggestion.ruleId} {suggestion.ruleVersion}
                 {' · '}Eligible % is set when you review — not from OCR

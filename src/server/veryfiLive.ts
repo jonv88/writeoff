@@ -81,5 +81,21 @@ export async function processVeryfiDocument(
     currency_code: payload.currency_code ?? null,
     ocr_text: payload.ocr_text ?? null,
     document_type: readDocumentType(payload.document_type),
+    line_items: lineItemDescriptions(payload),
   };
+}
+
+function lineItemDescriptions(payload: { line_items?: unknown }): { description: string }[] {
+  if (!Array.isArray(payload.line_items)) return [];
+  const names: { description: string }[] = [];
+  for (const row of payload.line_items) {
+    if (!row || typeof row !== 'object') continue;
+    const raw = (row as { description?: unknown; text?: unknown }).description ?? (row as { text?: unknown }).text;
+    if (typeof raw !== 'string') continue;
+    const description = raw.replace(/\s+/g, ' ').trim();
+    if (!description) continue;
+    names.push({ description });
+    if (names.length >= 40) break;
+  }
+  return names;
 }

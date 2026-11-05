@@ -38,7 +38,6 @@ export function categoryFor(merchant: string): string {
     [/accountant|bookkeep|legal fee/, 'Professional services'],
     [/workshop|course|tuition|training/, 'Education & training'],
     [/camera|b&h|adorama|equipment/, 'Equipment'],
-    [/pharmacy|cvs|walgreens|medical|dental|hospital/, 'Medical'],
     [/donation|charity|red cross/, 'Charitable giving'],
   ];
   for (const [rx, cat] of rules) {

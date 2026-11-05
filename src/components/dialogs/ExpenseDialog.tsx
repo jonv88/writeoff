@@ -31,6 +31,7 @@ export function ExpenseDialog({
   const [error, setError] = useState('');
   const [taxOpen, setTaxOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [categoryExplicit, setCategoryExplicit] = useState(false);
 
   useEffect(() => {
     const el = ref.current;
@@ -40,7 +41,12 @@ export function ExpenseDialog({
         setMerchant(old.merchant);
         setAmount(String(old.amount));
         setDate(old.date);
-        setCategory(old.category || 'Other');
+        const chosen = Boolean(
+          (old.treatmentSource === 'user' || old.treatmentSource === 'tax_pro' || old.reviewed) &&
+            old.category,
+        );
+        setCategoryExplicit(chosen);
+        setCategory(chosen ? old.category : categoryFor(old.merchant));
         setType(old.type || 'Unsorted');
         setEntity(old.entity || '');
         setShare(old.share || 50);
@@ -54,6 +60,7 @@ export function ExpenseDialog({
         setAmount('');
         setDate(today());
         setCategory('Other');
+        setCategoryExplicit(false);
         setType('Unsorted');
         setEntity('');
         setShare(50);
@@ -71,7 +78,17 @@ export function ExpenseDialog({
     }
   }, [open, old]);
 
-  const hint = suggest({ merchant, category }, profile, rules);
+  const hint = suggest(
+    {
+      merchant,
+      category,
+      notes,
+      categoryExplicit,
+      treatmentSource: categoryExplicit ? 'user' : 'suggestion',
+    },
+    profile,
+    rules,
+  );
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -151,7 +168,7 @@ export function ExpenseDialog({
               onChange={(e) => {
                 const v = e.target.value;
                 setMerchant(v);
-                if (!old) setCategory(categoryFor(v));
+                if (!old && !categoryExplicit) setCategory(categoryFor(v));
               }}
             />
           </label>
@@ -185,7 +202,10 @@ export function ExpenseDialog({
             <select
               id="formcategory"
               value={category}
-              onChange={(e) => setCategory(e.target.value)}
+              onChange={(e) => {
+                setCategoryExplicit(true);
+                setCategory(e.target.value);
+              }}
             >
               {categories.map((c) => (
                 <option key={c} value={c}>
@@ -247,6 +267,7 @@ export function ExpenseDialog({
         </label>
         <div id="formSuggestion" className="notice">
           {hint.label}: {hint.reason}
+          {hint.question ? ` ${hint.question}` : ''}
         </div>
         <label>
           Receipt · image or PDF, up to 3 MB
