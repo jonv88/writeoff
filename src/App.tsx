@@ -3,6 +3,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { WorkspaceProvider } from './context/WorkspaceContext';
 import { AuthScreen } from './components/AuthScreen';
 import { AppShell } from './components/AppShell';
+import { OwnerAccessGate } from './components/OwnerAccessGate';
 import { isLocalPreviewActive } from './lib/localWorkspace';
 
 function Gate() {
@@ -47,8 +48,10 @@ function Gate() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <Gate />
-    </AuthProvider>
+    <OwnerAccessGate>
+      <AuthProvider>
+        <Gate />
+      </AuthProvider>
+    </OwnerAccessGate>
   );
 }

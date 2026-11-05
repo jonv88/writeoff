@@ -6,6 +6,7 @@
 import { detectReceiptMimeFromMagicBytes } from '../lib/ocr/importFileValidation.ts';
 import { resolveVeryfiDocument, type VeryfiDocumentShape } from '../lib/ocr/receiptEvidence.ts';
 import { reserveDurableAttempt } from './attemptLedger.ts';
+import { ownerCodeMatches } from './ownerAccess.ts';
 import { processVeryfiDocument, VeryfiRequestError, type VeryfiCredentials } from './veryfiLive.ts';
 
 export const ALLOWED_PREVIEW_BRANCH = 'cursor/veryfi-live-scan-9e74';
@@ -22,6 +23,7 @@ export type ExtractEnv = {
   VERYFI_CLIENT_ID?: string;
   VERYFI_USERNAME?: string;
   VERYFI_API_KEY?: string;
+  PREVIEW_OWNER_CODE?: string;
 };
 
 type CacheEntry = { hash: string; body: string; status: number };
@@ -146,6 +148,9 @@ export async function handleExtractReceipt(
   if (!sameOrigin(request, options?.allowedOrigins || [])) {
     return failure(403, 'Receipt reading is only available from this preview.');
   }
+  if (env.PREVIEW_OWNER_CODE && !ownerCodeMatches(request.headers.get('cookie'), env.PREVIEW_OWNER_CODE)) {
+    return failure(401, 'This preview is limited to its owner.');
+  }
 
   const idempotencyKey = (request.headers.get('idempotency-key') || '').trim();
   if (!/^[A-Za-z0-9._:-]{8,80}$/.test(idempotencyKey)) {
@@ -184,6 +189,8 @@ export async function handleExtractReceipt(
       if (!recorded) return failure(422, 'No receipt reading is available for this photo.');
       document = recorded;
     } else if (env.VERYFI_LIVE_CALLS !== '1') {
+      return failure(503, 'Live receipt reading is turned off.');
+    } else if (!options?.processDocument && !env.PREVIEW_OWNER_CODE) {
       return failure(503, 'Live receipt reading is turned off.');
     } else {
       const credentials: VeryfiCredentials = {

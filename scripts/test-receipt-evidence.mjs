@@ -13,6 +13,7 @@ try {
   const { parseTotalFromText } = totals;
   const liveMod = await server.ssrLoadModule('/src/server/veryfiLive.ts');
   const { handleExtractReceipt, resetExtractGuards, liveDocumentCount } = handlerMod;
+  const { handlePreviewAccess } = await server.ssrLoadModule('/src/server/ownerAccess.ts');
   const { processVeryfiDocument } = liveMod;
 
   assert.equal(parseTotalFromText('TIP 3.50\nAMOUNT PAID 29.30').total, 29.3);
@@ -111,6 +112,7 @@ try {
           host: 'preview.test',
           'idempotency-key': extra.key || crypto.randomUUID(),
           'x-file-name': extra.name || 'receipt.jpg',
+          ...(extra.cookie ? { cookie: extra.cookie } : {}),
         },
         body: bytes,
       }),
@@ -252,6 +254,44 @@ try {
   assert.equal(fourth.status, 429);
   assert.equal(attempts, 3);
   assert.equal(ledger, 3);
+
+  resetExtractGuards();
+  let ownerCalls = 0;
+  const ownerEnv = {
+    env: { PREVIEW_OWNER_CODE: 'owner-test-code', VERYFI_LIVE_CALLS: '1', VERYFI_PREVIEW_DOC_CAP: '3' },
+    processDocument: async () => {
+      ownerCalls += 1;
+      return { vendor: { raw_name: 'Walmart' }, date: '2026-11-01', total: 19.9, ocr_text: 'TOTAL 19.90' };
+    },
+  };
+  const locked = await post(jpeg, { key: 'owner-locked-1' }, ownerEnv);
+  assert.equal(locked.status, 401);
+  const wrongOwner = await post(jpeg, { key: 'owner-wrong-1', cookie: 'wo_owner=someone-else' }, ownerEnv);
+  assert.equal(wrongOwner.status, 401);
+  assert.equal(ownerCalls, 0);
+  const owner = await post(jpeg, { key: 'owner-open-1', cookie: 'wo_owner=owner-test-code' }, ownerEnv);
+  assert.equal(owner.status, 200);
+  assert.equal(ownerCalls, 1);
+  const denied = await handlePreviewAccess(
+    new Request('https://preview.test/api/preview-access', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ code: 'nope' }),
+    }),
+    { PREVIEW_OWNER_CODE: 'owner-test-code' },
+  );
+  assert.equal(denied.status, 401);
+  const admitted = await handlePreviewAccess(
+    new Request('https://preview.test/api/preview-access', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ code: 'owner-test-code' }),
+    }),
+    { PREVIEW_OWNER_CODE: 'owner-test-code' },
+  );
+  assert.equal(admitted.status, 204);
+  assert.match(admitted.headers.get('set-cookie') || '', /^wo_owner=/);
+  assert.equal(await admitted.text(), '');
 
   resetExtractGuards();
   const noLedger = await post(jpeg, { key: 'no-ledger-1' }, {

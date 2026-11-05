@@ -6,6 +6,7 @@
 import { createServer } from 'node:http';
 import { readFileSync } from 'node:fs';
 import { handleExtractReceipt } from '../src/server/extractReceiptHandler.ts';
+import { handlePreviewAccess } from '../src/server/ownerAccess.ts';
 
 const port = Number(process.env.RECEIPT_REPLAY_PORT || 8787);
 const delayMs = Number(process.env.RECEIPT_REPLAY_DELAY_MS || 0);
@@ -34,8 +35,11 @@ const server = createServer(async (req, res) => {
     headers,
     body: req.method === 'GET' || req.method === 'HEAD' ? undefined : body,
   });
-  const response = await handleExtractReceipt(request, {
-    allowedOrigins: ['http://127.0.0.1:5173', 'http://localhost:5173', 'http://127.0.0.1:5174', 'http://localhost:5174'],
+  const path = new URL(request.url).pathname;
+  const response = path === '/api/preview-access'
+    ? await handlePreviewAccess(request, process.env)
+    : await handleExtractReceipt(request, {
+    allowedOrigins: ['http://127.0.0.1:5173', 'http://localhost:5173', 'http://127.0.0.1:5174', 'http://localhost:5174', 'http://127.0.0.1:5176', 'http://localhost:5176'],
     selectRecorded(fileName) {
       return fixtures.get(fileName) || null;
     },
