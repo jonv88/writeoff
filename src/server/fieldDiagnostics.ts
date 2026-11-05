@@ -14,9 +14,15 @@ export type FieldDiagnostic = {
   field: 'total';
   decision: 'accepted' | 'rejected';
   reason: string;
+  /** Provider structured total. Kept even when the evidence list is full. */
+  structuredTotal: number | null;
   candidates: number[];
   evidence: string[];
 };
+
+function finiteAmount(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
 
 function redact(value: string): string {
   return value
@@ -34,6 +40,7 @@ export function sanitizeDiagnostic(entry: FieldDiagnostic): FieldDiagnostic {
     field: 'total',
     decision: entry.decision === 'accepted' ? 'accepted' : 'rejected',
     reason: redact(entry.reason),
+    structuredTotal: finiteAmount(entry.structuredTotal),
     candidates: entry.candidates.filter((value) => Number.isFinite(value)).slice(0, 8),
     evidence: entry.evidence.map(redact).filter(Boolean).slice(0, 8),
   };

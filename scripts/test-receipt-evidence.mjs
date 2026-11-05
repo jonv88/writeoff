@@ -175,11 +175,21 @@ try {
     field: 'total',
     decision: 'rejected',
     reason: 'rejected-conflict',
-    candidates: [12.5, 15],
-    evidence: ['total:same-line:12.5', 'card 4111111111111111', 'person@example.com'],
+    structuredTotal: 15.97,
+    candidates: [12.5, 15, 1, 2, 3, 4, 5, 6, 7, 8],
+    evidence: [
+      'total:same-line:12.5',
+      'card 4111111111111111',
+      'person@example.com',
+      ...Array.from({ length: 10 }, (_, index) => `cash:same-line:${index}.10`),
+    ],
   });
   assert.equal(dirty.evidence.some((item) => item.includes('4111') || item.includes('@')), false);
   assert.equal(dirty.evidence[0], 'total:same-line:12.5');
+  assert.equal(dirty.evidence.length, 8);
+  assert.equal(dirty.reason, 'rejected-conflict');
+  assert.equal(dirty.structuredTotal, 15.97);
+  assert.equal(dirty.evidence.some((item) => item.startsWith('structured-total')), false);
   assert.equal(shouldRetainTotalTrace('accepted-same-line'), false);
   assert.equal(shouldRetainTotalTrace('accepted-next-line'), true);
   const keptLog = mergeDiagnosticLog(
@@ -300,8 +310,44 @@ try {
   assert.equal(liveDocumentCount(), 0);
   assert.equal(noted.length, 1);
   assert.equal(noted[0].reason, 'accepted-next-line');
+  assert.equal(noted[0].structuredTotal, 17.6);
   assert.equal(noted[0].requestId, 'split-line-key-01');
   assert.equal(noted[0].evidence.some((item) => /Northline|November/.test(item)), false);
+
+  resetExtractGuards();
+  const crowdedNotes = [];
+  const crowded = await post(jpeg, { name: 'crowded-total.png', key: 'crowded-total-key' }, {
+    selectRecorded() {
+      return {
+        vendor: { name: 'Market Street' },
+        date: '2026-11-04',
+        total: 0.73,
+        ocr_text: [
+          'SUBTOTAL 14.98',
+          'TAX 0.99',
+          'TOTAL 15.97',
+          'ROUNDING 0.02',
+          'CASH 20.00',
+          'CHANGE 4.05',
+          'CASH 0.87',
+          'BALANCE 0.73',
+          'GRAND TOTAL 11.00',
+        ].join('\n'),
+      };
+    },
+    recordDiagnostic(entry) {
+      crowdedNotes.push(entry);
+    },
+  });
+  const crowdedBody = await crowded.json();
+  assert.equal(crowded.status, 200);
+  assert.equal(crowdedBody.total, null);
+  assert.equal(crowdedBody.totalTrace, undefined);
+  assert.equal(crowdedNotes.length, 1);
+  assert.equal(crowdedNotes[0].reason, 'rejected-conflict');
+  assert.equal(crowdedNotes[0].structuredTotal, 0.73);
+  assert.equal(crowdedNotes[0].evidence.length, 8);
+  assert.equal(crowdedNotes[0].evidence.some((item) => item.startsWith('structured-')), false);
 
   resetExtractGuards();
   let liveCalls = 0;

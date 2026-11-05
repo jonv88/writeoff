@@ -1,6 +1,6 @@
 # Writeoff — Feature Status
 
-Last updated: 2026-11-02 (local preview for testers)
+Last updated: 2026-11-05
 
 Legend: **Done** · **Partial** · **Blocked** · **Not started**
 
@@ -8,58 +8,43 @@ Legend: **Done** · **Partial** · **Blocked** · **Not started**
 
 | Capability | Status | Notes |
 | --- | --- | --- |
-| Template lock / five screens / React scaffold | Done | `npm run verify:template` |
-| Supabase migrations (A+B) | Done (SQL) | Apply to Writeoff project only — see `docs/APPLY_MIGRATIONS.md` |
-| Auth / storage / isolation **verified** | Blocked | Needs dedicated Writeoff project keys (Rhev not used) |
-| Capacitor iOS project | Partial | Config only; needs macOS/Xcode |
+| Template lock / five screens | Done | `npm run verify:template` |
+| Supabase migrations | Done (SQL) | Not applied in this environment. Includes sandbox bank and entitlement tables. |
+| Auth / live isolation | Blocked | `VITE_SUPABASE_URL` and anon key are missing here |
+| Capacitor iOS | Partial | Config only. This machine has no Xcode |
 
-## B — Central product loop + receipt backend
+## B — Receipts and review
 
 | Capability | Status | Notes |
 | --- | --- | --- |
-| Suggestion engine + editable treatments | Done (client) | `npm run test:suggestions` |
-| Summaries / filters / CSV | Done (client) | |
-| Snap a receipt UI | Done | |
-| **extract-receipt Edge Function** | Done (source) | Auth JWT, validate type/size, private Storage, Mindee adapter |
-| OCR secrets off `VITE_*` | Done | Only public URL + anon in browser |
-| Mindee wired behind env | Done | Honest `blocked` if `MINDEE_API_KEY` missing |
-| Deploy function + secrets | Blocked | Waiting Writeoff project ref |
-| Live upload→extract→confirm→CSV | Blocked | `npm run verify:receipt-flow` dry-runs until keys |
-| Two-customer isolation (live) | Blocked | Harness ready |
+| Suggestions, Business / Personal / Split, CSV | Done (client) | Eligible amount stays empty until the customer checks it |
+| Snap a receipt, local save/reload, text draft | Done (browser) | Photo bytes are not in the text draft |
+| Veryfi evidence totals | Done (recorded) | Physical iPhone retest still open. One live attempt reserved |
+| Diagnostics | Done (code) | `structuredTotal` and `reason` survive an eight-line evidence cap |
+| Pharmacy categorization | Done | Merchant name alone does not suggest medical |
 
-## OCR provider recommendation
+## C — Banks
 
-**Mindee Expense Receipts V5** — receipt-native fields + confidence; free tier ~**250 docs/month** (confirm current); paid plans typically tens of USD/month or usage beyond free. Alternatives: Google Document AI Expense Parser, AWS Textract AnalyzeExpense, Veryfi. Details: `docs/RECEIPT_OCR.md`. **No paid activation in this work.**
+| Capability | Status | Notes |
+| --- | --- | --- |
+| Sandbox ingestion rules | Done (unit) | Pending, posted, duplicate, refund, transfer, and other-customer denial |
+| Plaid link and sync | Blocked | `PLAID_CLIENT_ID` and `PLAID_SECRET` are missing. Accounts stays unavailable |
+| Production bank linking | Blocked | Not approved and not labeled connected |
 
-## C / D
+## D — Subscriptions
 
-| Banks sandbox | Not started (Accounts honest pending) |
-| Subscriptions | Not started |
-
-## Local preview (shipped — $0 / no cloud)
-
-| Capability | Status |
-| --- | --- |
-| `npm run dev` browser preview | Done — see `PREVIEW.md` |
-| Browser-local storage | Done |
-| Sample data + empty workspace + reset | Done (Setup controls) |
-| Core review loop without credentials | Done |
-| OCR | Not available locally — attach + manual entry only (no fake success) |
-| Banks / purchases | Clearly unavailable |
-
-## Blockers (cloud verification only)
-
-1. Dedicated **Writeoff** Supabase project ref + anon key (+ service role for deploy/scripts) via store — do not commit  
-2. Edge secrets: `MINDEE_API_KEY`, `OCR_PROVIDER=mindee` (paid OCR not activated on $0 budget)  
-3. Apply migrations + deploy `extract-receipt`  
-4. Docker / Xcode as before  
+| Capability | Status | Notes |
+| --- | --- | --- |
+| Entitlement reducer | Done (unit) | Purchase, restore, renew, cancel, grace, billing retry, expire, duplicates, and stale events |
+| Store purchase | Blocked | No RevenueCat or App Store credentials. UI shows “No subscription” |
+| Account deletion vs cancel | Partial | Cancel does not delete records. Cloud deletion needs the Supabase project |
 
 ## Commands
 
 ```bash
-npm install && npm run dev           # Jonathan: start here
 npm run verify:template
 npm run test:suggestions
-npm run verify:receipt-flow          # dry run without keys
-npm run build
+npm run test:receipt-evidence
+npm run test:launch
+npm run typecheck
 ```

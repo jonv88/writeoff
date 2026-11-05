@@ -255,6 +255,7 @@ export async function handleExtractReceipt(
       field: 'total',
       decision: trace.decision,
       reason: trace.reason,
+      structuredTotal: typeof document.total === 'number' && Number.isFinite(document.total) ? document.total : null,
       candidates: trace.candidates,
       evidence: trace.evidence,
     });

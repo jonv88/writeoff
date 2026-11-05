@@ -5,6 +5,7 @@ import { formatOcrAmount } from '../../lib/ocr/browserOcr';
 import { mergeReceiptReading } from '../../lib/ocr/receiptEvidence';
 import { ReceiptScanSession } from '../../lib/ocr/receiptScanSession';
 import { requestServerExtraction } from '../../lib/ocr/serverExtraction';
+import { clearReceiptDraft, loadReceiptDraft, saveReceiptDraft, type ReceiptDraft } from '../../lib/receiptDraft';
 import { suggestWriteOff } from '../../lib/writeoffEngine';
 import { emptyExpense } from '../../lib/types';
 import { useWorkspace } from '../../context/WorkspaceContext';
@@ -90,6 +91,8 @@ export function SnapReceiptDialog({
   const [extractionVersion, setExtractionVersion] = useState('');
   const [captureHint, setCaptureHint] = useState('');
   const [session, setSession] = useState<MockSession>(() => readSession());
+  const [draftOffer, setDraftOffer] = useState<ReceiptDraft | null>(null);
+  const draftSaved = useRef(false);
 
   useEffect(() => {
     scanSession.current.invalidate();
@@ -116,6 +119,8 @@ export function SnapReceiptDialog({
       setExtractionVersion('');
       setCaptureHint('');
       userTouched.current = { merchant: false, amount: false, date: false };
+      draftSaved.current = false;
+      setDraftOffer(loadReceiptDraft());
       if (cameraInputRef.current) cameraInputRef.current.value = '';
       if (fileInputRef.current) fileInputRef.current.value = '';
       el.showModal();
@@ -131,6 +136,19 @@ export function SnapReceiptDialog({
   }, [previewUrl]);
 
   useEffect(() => () => scanSession.current.invalidate(), []);
+
+  useEffect(() => {
+    if (!open || phase !== 'review' || draftSaved.current) return;
+    if (!merchant && !amount && !date) return;
+    saveReceiptDraft({
+      merchant,
+      amount,
+      date,
+      currency,
+      notes,
+      updatedAt: new Date().toISOString(),
+    });
+  }, [open, phase, merchant, amount, date, currency, notes]);
 
   function markTouched(key: FieldKey) {
     userTouched.current[key] = true;
@@ -404,6 +422,9 @@ export function SnapReceiptDialog({
           },
           serverStoragePath ? null : file,
         );
+        draftSaved.current = true;
+        clearReceiptDraft();
+        setDraftOffer(null);
         showToast('Receipt attached to the matching expense.');
         const typed =
           userTouched.current.merchant || userTouched.current.date || userTouched.current.amount;
@@ -437,6 +458,9 @@ export function SnapReceiptDialog({
         receipt: receiptMeta,
       });
       await saveRecord(record, serverStoragePath ? null : file);
+      draftSaved.current = true;
+      clearReceiptDraft();
+      setDraftOffer(null);
       const typed =
         userTouched.current.merchant || userTouched.current.date || userTouched.current.amount;
       bumpSession((prev) => ({
@@ -495,6 +519,40 @@ export function SnapReceiptDialog({
           {session.reviews} reviewed · {session.savesWithoutTyping} saved without typing ·{' '}
           {session.fieldsLeftForReview} fields left for review.
         </p>
+
+        {phase === 'pick' && draftOffer && (
+          <div className="notice" style={{ marginBottom: 12 }}>
+            Unsaved receipt details are still in this browser. They are not saved as an expense.
+            <div className="inlinebuttons" style={{ marginTop: 10 }}>
+              <button
+                type="button"
+                className="btn secondary"
+                onClick={() => {
+                  setMerchant(draftOffer.merchant);
+                  setAmount(draftOffer.amount);
+                  setDate(draftOffer.date);
+                  setCurrency(draftOffer.currency || 'USD');
+                  setNotes(draftOffer.notes);
+                  userTouched.current = { merchant: true, amount: true, date: true };
+                  setPhase('review');
+                  setDraftOffer(null);
+                }}
+              >
+                Continue details
+              </button>
+              <button
+                type="button"
+                className="btn secondary"
+                onClick={() => {
+                  clearReceiptDraft();
+                  setDraftOffer(null);
+                }}
+              >
+                Discard details
+              </button>
+            </div>
+          </div>
+        )}
 
         {phase === 'pick' && (
           <div className="importbox">

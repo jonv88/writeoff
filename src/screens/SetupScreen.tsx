@@ -5,7 +5,9 @@ import {
   clearLegacyLocalStorage,
   detectLegacyLocalStorage,
 } from '../lib/legacyMigration';
-import { importExpenses, saveMerchantRule, saveProfile } from '../lib/data';
+import { deleteOwnedCloudAccount, importExpenses, saveMerchantRule, saveProfile } from '../lib/data';
+import { DELETION_RETENTION } from '../lib/account/deletion';
+import { expensesToCsv } from '../lib/records/csvExport';
 import { uid } from '../lib/core';
 
 const sourceLinks = (
@@ -40,6 +42,7 @@ export function SetupScreen({ onSetup }: { onSetup: () => void }) {
   const legacy = useMemo(() => detectLegacyLocalStorage(), []);
   const [importing, setImporting] = useState(false);
   const [legacyMsg, setLegacyMsg] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   async function importLegacy() {
     if (!user || !legacy.preview) return;
@@ -84,21 +87,26 @@ export function SetupScreen({ onSetup }: { onSetup: () => void }) {
     }
   }
 
+  async function deleteAccount() {
+    if (!user) return;
+    const confirmed = window.confirm(
+      'Delete the records in this signed-in account? This does not cancel a subscription. Browser data is cleared only after the server confirms.',
+    );
+    if (!confirmed) return;
+    setDeleting(true);
+    try {
+      await deleteOwnedCloudAccount(user.id);
+      await signOut();
+      showToast('Account records deleted.');
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Account records were not deleted.');
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   async function exportAllCsv() {
-    const rows = [
-      ['Merchant', 'Date', 'Category', 'Use', 'Amount (USD)', 'Notes', 'Source'],
-      ...records.map((r) => [
-        r.merchant,
-        r.date,
-        r.category,
-        r.type,
-        String(r.amount),
-        r.notes,
-        r.source,
-      ]),
-    ];
-    const cell = (v: string) => `"${String(v ?? '').replace(/^[\s]*[=+@-]/, "'$&").replace(/"/g, '""')}"`;
-    const blob = new Blob(['\uFEFF' + rows.map((row) => row.map(cell).join(',')).join('\r\n')], {
+    const blob = new Blob([expensesToCsv(records)], {
       type: 'text/csv;charset=utf-8',
     });
     const u = URL.createObjectURL(blob);
@@ -186,6 +194,30 @@ export function SetupScreen({ onSetup }: { onSetup: () => void }) {
               </button>
             )}
           </div>
+          <p className="helper" style={{ marginTop: 12 }}>
+            {DELETION_RETENTION}
+          </p>
+          {!localPreview && user && (
+            <button
+              type="button"
+              className="btn secondary"
+              disabled={deleting}
+              onClick={() => void deleteAccount()}
+              style={{ marginTop: 12 }}
+            >
+              {deleting ? 'Deleting…' : 'Delete account records'}
+            </button>
+          )}
+        </div>
+
+        <div className="panel">
+          <h2>Subscription</h2>
+          <p className="helper" style={{ margin: '12px 0' }}>
+            Purchases aren’t available in this preview. When a store product is configured, the
+            price and period come from the store. Canceling a subscription does not delete your
+            records or turn off export.
+          </p>
+          <span className="badge statuspending">No subscription</span>
         </div>
 
         {localPreview && (
