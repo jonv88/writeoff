@@ -1,0 +1,8 @@
+{
+  "note": "Recorded provider shape for tests. Not a live Veryfi response.",
+  "vendor": { "name": "Corner Newsstand", "raw_name": "Corner Newsstand" },
+  "date": "2026-11-03",
+  "total": 7.25,
+  "currency_code": "USD",
+  "ocr_text": "Corner Newsstand\nMagazine 5.99\nAMOUNT PAID 7.25\nNovember 3, 2026"
+}

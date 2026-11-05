@@ -14,11 +14,12 @@
     "verify:receipt-flow": "node scripts/verify-receipt-flow.mjs",
     "test:ocr-parse": "node scripts/test-browser-ocr-parse.mjs",
     "test:veryfi-mock": "node scripts/test-veryfi-mock-fallback.mjs",
+    "test:receipt-evidence": "node scripts/test-receipt-evidence.mjs",
+    "test:receipt-isolation": "node scripts/test-receipt-scan-session.mjs",
     "eval:receipt-reliability": "node scripts/eval-receipt-reliability.mjs",
     "migrations:print": "bash scripts/apply-migrations.sh",
     "cap:sync": "npm run build && npx cap sync ios",
-    "typecheck": "tsc -b --pretty false",
-    "test:receipt-isolation": "node scripts/test-receipt-scan-session.mjs"
+    "typecheck": "tsc -b --pretty false"
   },
   "dependencies": {
     "@capacitor/app": "^8.1.2",

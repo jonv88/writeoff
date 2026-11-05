@@ -1,0 +1,8 @@
+{
+  "note": "Recorded provider shape with a conflicting total and a swapped date. Not a live Veryfi response.",
+  "vendor": { "name": "Harbor Market", "raw_name": "Harbor Market" },
+  "date": "2026-02-11",
+  "total": 15,
+  "currency_code": "USD",
+  "ocr_text": "Harbor Market\nTOTAL 12.50\nGRAND TOTAL 15.00\nAMOUNT DUE 11.00\n11/02/2026 12:00"
+}

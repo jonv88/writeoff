@@ -58,9 +58,9 @@ export function ReceiptsScreen({
         </div>
       )}
       <p className="helper" style={{ marginTop: 20 }}>
-        Snap a receipt uploads through the signed-in extract-receipt service. When OCR is not
-        configured on the server, you review the photo and enter details manually. Matching to an
-        existing expense is offered before save.
+        Snap a receipt reads the photo, then you confirm merchant, date, and amount before it is
+        saved. If reading fails, the photo stays attached and the fields stay blank until you enter
+        them. Matching to an existing expense is offered before save.
       </p>
     </>
   );

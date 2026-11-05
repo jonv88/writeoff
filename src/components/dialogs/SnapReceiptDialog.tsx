@@ -2,7 +2,9 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { categoryFor, uid } from '../../lib/core';
 import { extractReceipt } from '../../lib/ocr/adapter';
 import { formatOcrAmount } from '../../lib/ocr/browserOcr';
+import { mergeReceiptReading } from '../../lib/ocr/receiptEvidence';
 import { ReceiptScanSession } from '../../lib/ocr/receiptScanSession';
+import { requestServerExtraction } from '../../lib/ocr/serverExtraction';
 import { suggestWriteOff } from '../../lib/writeoffEngine';
 import { emptyExpense } from '../../lib/types';
 import { useWorkspace } from '../../context/WorkspaceContext';
@@ -164,7 +166,12 @@ export function SnapReceiptDialog({
     if (!userTouched.current.amount && result.total == null && !uncertainNext.includes('total')) {
       uncertainNext.push('total');
     }
-    const uniqueUncertain = [...new Set(uncertainNext)];
+    const uniqueUncertain = [...new Set(uncertainNext)].filter((field) => {
+      if (field === 'merchant' && userTouched.current.merchant) return false;
+      if (field === 'date' && userTouched.current.date) return false;
+      if (field === 'total' && userTouched.current.amount) return false;
+      return true;
+    });
     setUncertain(uniqueUncertain);
     setFieldHints({
       merchant:
@@ -245,11 +252,25 @@ export function SnapReceiptDialog({
       });
     } catch {
       if (!scanSession.current.isCurrent(scanId)) return;
+      const remote = await requestServerExtraction(f);
+      if (!scanSession.current.isCurrent(scanId)) return;
+      setFile(f);
+      if (remote.ok) {
+        setOcrProvider(remote.reading.provider);
+        setExtractionVersion(remote.reading.version);
+        setExtractionStatus(remote.reading.status);
+        applyOcrToForm(remote.reading);
+        setPhase('review');
+        setPipeline(remote.reading.uncertainFields.length ? 'needs_manual' : 'details_filled');
+        bumpSession((prev) => ({ ...prev, snaps: prev.snaps + 1, reviews: prev.reviews + 1 }));
+        return;
+      }
       setPhase('review');
       setPipeline('needs_manual');
       setExtractionStatus('failed');
       setUncertain(['merchant', 'date', 'total']);
-      setStatusMsg('We could not read this receipt. Your photo is attached; enter the details before saving.');
+      setError(remote.message);
+      setStatusMsg(remote.message);
       return;
     }
 
@@ -266,7 +287,7 @@ export function SnapReceiptDialog({
       return null;
     });
 
-    // Keep receipt attached even when OCR fails / needs manual entry
+    // Keep receipt attached even when OCR fails / needs manual entry.
     setFile(attachFile || f);
     setOcrProvider(result.provider || null);
     setExtractionVersion(result.version || '');
@@ -279,17 +300,30 @@ export function SnapReceiptDialog({
         ? result.status
         : 'needs_details',
     );
-
     applyOcrToForm(result);
     setPhase('review');
+    setStatusMsg('Sending photo for receipt reading…');
     bumpSession((prev) => ({ ...prev, snaps: prev.snaps + 1, reviews: prev.reviews + 1 }));
 
-    if (result.merchant && result.date && result.total != null) {
+    const remote = await requestServerExtraction(attachFile || f);
+    if (!scanSession.current.isCurrent(scanId)) return;
+    const merged = mergeReceiptReading({
+      local: result,
+      remote: remote.ok ? remote.reading : null,
+      remoteError: remote.ok ? undefined : remote.message,
+    });
+    setOcrProvider(merged.provider || null);
+    setExtractionVersion(merged.version || '');
+    setExtractionStatus(merged.status);
+    if (!remote.ok) setError(remote.message);
+    applyOcrToForm(merged);
+
+    if (merged.merchant && merged.date && merged.total != null) {
       const hit = records.find(
         (r) =>
-          r.merchant.toLowerCase() === result.merchant!.toLowerCase() &&
-          r.date === result.date &&
-          Math.abs(r.amount - result.total!) < 0.005,
+          r.merchant.toLowerCase() === merged.merchant!.toLowerCase() &&
+          r.date === merged.date &&
+          Math.abs(r.amount - merged.total!) < 0.005,
       );
       if (hit) setMatchId(hit.id);
     }
@@ -435,7 +469,8 @@ export function SnapReceiptDialog({
         <p>Photograph or choose a receipt. No bank connection required.</p>
         {browserMode && phase === 'pick' && (
           <div className="notice" style={{ marginBottom: 12 }}>
-            Your receipt is read on this device. Review the details before saving.
+            The photo is read on this device and sent for receipt reading. Review merchant, date, and
+            amount before saving. Nothing is saved until you confirm.
           </div>
         )}
         <p className="formhint">
@@ -672,6 +707,7 @@ export function SnapReceiptDialog({
                 type="button"
                 className="btn secondary"
                 onClick={() => {
+                  scanSession.current.invalidate();
                   setPhase('pick');
                   setPipeline('idle');
                   setStatusMsg('');
