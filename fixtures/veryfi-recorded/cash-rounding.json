@@ -1,0 +1,8 @@
+{
+  "note": "Recorded provider shape. Cash tendered is rounded up. The purchase total is the labeled total. Not a live response.",
+  "vendor": { "name": "Pine Grocery", "raw_name": "Pine Grocery" },
+  "date": "2026-11-04",
+  "total": 5,
+  "currency_code": "USD",
+  "ocr_text": "Pine Grocery\nTOTAL\n4.92\nCASH TENDERED\n5.00\nCHANGE\n0.08\nNovember 4, 2026"
+}

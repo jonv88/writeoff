@@ -7,7 +7,8 @@ import type { ReceiptReading } from './receiptEvidence.ts';
 export type ServerExtraction =
   | {
       ok: true;
-      processed: true;
+      /** True only when the live provider processed this photo. */
+      processed: boolean;
       reused: boolean;
       reading: ReceiptReading & { provider: string; version: string; mode: string };
     }
@@ -44,12 +45,12 @@ export async function requestServerExtraction(file: File): Promise<ServerExtract
     | (ReceiptReading & { provider?: string; version?: string; mode?: string; duplicate?: boolean; message?: string })
     | null;
   const message = payload?.message || `Receipt reading failed (${response.status}). Your photo is attached; enter the details before saving.`;
-  if (!response.ok || !payload || payload.status === 'failed' || payload.mode !== 'live') {
+  if (!response.ok || !payload || payload.status === 'failed' || (payload.mode !== 'live' && payload.mode !== 'recorded')) {
     return { ok: false, processed: false, message };
   }
   return {
     ok: true,
-    processed: true,
+    processed: payload.mode === 'live',
     reused: payload.duplicate === true,
     reading: {
       merchant: payload.merchant ?? null,

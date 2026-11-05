@@ -1,0 +1,8 @@
+{
+  "note": "Recorded provider shape. A rewards balance sits above the purchase total. Not a live response.",
+  "vendor": { "name": "Harbor Books", "raw_name": "Harbor Books" },
+  "date": "2026-11-04",
+  "total": 48.2,
+  "currency_code": "USD",
+  "ocr_text": "Harbor Books\nREWARDS BALANCE\n48.20\nTOTAL\n12.34\nNovember 4, 2026"
+}

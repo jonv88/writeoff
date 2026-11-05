@@ -1,0 +1,10 @@
+{
+  "note": "Recorded provider shape. The final amount is on the line under TOTAL. Not a live response.",
+  "vendor": { "name": "Northline Market", "raw_name": "Northline Market" },
+  "date": "2026-11-04",
+  "total": 17.6,
+  "subtotal": 16.4,
+  "tax": 1.2,
+  "currency_code": "USD",
+  "ocr_text": "Northline Market\nSUBTOTAL\n16.40\nTAX\n1.20\nTOTAL\n17.60\nNovember 4, 2026"
+}

@@ -3,7 +3,7 @@
  * Structured provider fields are accepted only when the receipt text agrees.
  * No network and no credentials.
  */
-import { parseTotalFromText } from './receiptTotals.ts';
+import { explainTotal, rowsFromLayout, type TotalTrace } from './receiptTotals.ts';
 
 const MONTHS: Record<string, number> = {
   jan: 1, january: 1, feb: 2, february: 2, mar: 3, march: 3, apr: 4, april: 4, may: 5,
@@ -22,17 +22,26 @@ export type ReceiptReading = {
   status: 'ready' | 'needs_details' | 'failed';
   /** Descriptions from the receipt. Amounts stay out of this list. */
   items?: { name: string }[];
+  /** Server-only. Strip before a response or a general log. */
+  totalTrace?: TotalTrace;
 };
 
 export type VeryfiDocumentShape = {
   vendor?: { name?: string | null; raw_name?: string | null } | null;
   date?: string | null;
   total?: number | null;
+  subtotal?: number | null;
+  tax?: number | null;
   tip?: number | null;
+  discount?: number | null;
+  cashback?: number | null;
+  rounding?: number | null;
   currency_code?: string | null;
   ocr_text?: string | null;
   document_type?: string | null;
   line_items?: { description?: string | null }[] | null;
+  /** Provider line boxes, already reduced to text plus position. */
+  layoutLines?: { text: string; top: number; left?: number }[] | null;
 };
 
 type DatedEvidence = {
@@ -170,9 +179,20 @@ export function resolveVeryfiDocument(doc: VeryfiDocumentShape): ReceiptReading 
   const date = dated.uncertain ? null : dated.date;
   if (!date) uncertain.push('date');
 
-  const evidenced = text ? parseTotalFromText(text) : { total: null, currency: 'USD' };
-  let total: number | null = null;
-  if (evidenced.total != null) total = evidenced.total;
+  const layoutText = doc.layoutLines?.length ? rowsFromLayout(doc.layoutLines).join('\n') : '';
+  const explained = explainTotal(text, {
+    layoutText,
+    structured: {
+      total: doc.total,
+      subtotal: doc.subtotal,
+      tax: doc.tax,
+      tip: doc.tip,
+      discount: doc.discount,
+      cashback: doc.cashback,
+      rounding: doc.rounding,
+    },
+  });
+  const total = explained.total;
   if (total == null) uncertain.push('total');
 
   const vendor = (doc.vendor?.raw_name || doc.vendor?.name || '').replace(/\s+/g, ' ').trim();
@@ -189,7 +209,16 @@ export function resolveVeryfiDocument(doc: VeryfiDocumentShape): ReceiptReading 
     .filter(Boolean)
     .slice(0, 40)
     .map((name) => ({ name }));
-  return { ...readingFrom({ merchant, date, total, currency, uncertain, message }), items };
+  return {
+    ...readingFrom({ merchant, date, total, currency, uncertain, message }),
+    items,
+    totalTrace: {
+      decision: explained.decision,
+      reason: explained.reason,
+      candidates: explained.candidates,
+      evidence: explained.evidence,
+    },
+  };
 }
 
 type LocalReading = {

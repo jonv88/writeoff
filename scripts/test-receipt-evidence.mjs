@@ -10,7 +10,7 @@ try {
   const totals = await server.ssrLoadModule('/src/lib/ocr/receiptTotals.ts');
   const handlerMod = await server.ssrLoadModule('/src/server/extractReceiptHandler.ts');
   const { resolveVeryfiDocument, mergeReceiptReading, resolveUsDate, evidenceDate } = evidence;
-  const { parseTotalFromText } = totals;
+  const { parseTotalFromText, explainTotal, rowsFromLayout } = totals;
   const liveMod = await server.ssrLoadModule('/src/server/veryfiLive.ts');
   const { handleExtractReceipt, resetExtractGuards, liveDocumentCount } = handlerMod;
   const { handlePreviewAccess } = await server.ssrLoadModule('/src/server/ownerAccess.ts');
@@ -22,6 +22,26 @@ try {
   assert.equal(parseTotalFromText('TOTAL 19.90 CHANGE 0.10').total, 19.9);
   assert.equal(parseTotalFromText('TOTAL 12.50\nGRAND TOTAL 15.00\nAMOUNT DUE 11.00').total, null);
   assert.equal(parseTotalFromText('CASH 20.00').total, null);
+  assert.equal(parseTotalFromText('SUBTOTAL\n16.40\nTAX\n1.20\nTOTAL\n17.60').total, 17.6);
+  assert.equal(parseTotalFromText('TOTAL\n4.92\nCASH TENDERED\n5.00\nCHANGE\n0.08').total, 4.92);
+  assert.equal(parseTotalFromText('REWARDS BALANCE\n48.20\nTOTAL\n12.34').total, 12.34);
+  assert.equal(parseTotalFromText('TOTAL\n12.50\nGRAND TOTAL\n15.00\nAMOUNT DUE\n11.00').total, null);
+  const structuredCash = explainTotal('TOTAL\n4.92\nCASH TENDERED\n5.00\nCHANGE\n0.08', { structured: { total: 5 } });
+  assert.equal(structuredCash.total, 4.92);
+  assert.equal(structuredCash.reason, 'accepted-next-line');
+  const structuredOnly = explainTotal('Notebook 3.50\nPen 1.25', { structured: { total: 4.75, tax: 0.4 } });
+  assert.equal(structuredOnly.total, null);
+  assert.equal(structuredOnly.reason, 'rejected-structured-only');
+  const sideBySide = explainTotal('TOTAL CASH\n10.50 20.00', {
+    layoutText: rowsFromLayout([
+      { text: 'TOTAL', top: 0.8, left: 0.1 },
+      { text: '10.50', top: 0.802, left: 0.72 },
+      { text: 'CASH', top: 0.9, left: 0.1 },
+      { text: '20.00', top: 0.901, left: 0.72 },
+    ]).join('\n'),
+  });
+  assert.equal(sideBySide.total, 10.5);
+  assert.equal(sideBySide.reason, 'accepted-layout-row');
 
   assert.equal(resolveUsDate('November 3, 2026', null).date, '2026-11-03');
   assert.equal(resolveUsDate('November 3, 2026', '2026-03-11').date, null);
@@ -98,6 +118,89 @@ try {
   assert.equal(filled.merchant, 'Corner Newsstand');
   assert.equal(filled.uncertainFields.includes('total'), false);
 
+  const split = resolveVeryfiDocument(JSON.parse(readFileSync('fixtures/veryfi-recorded/split-line-total.json', 'utf8')));
+  assert.equal(split.total, 17.6);
+  assert.equal(split.uncertainFields.includes('total'), false);
+  assert.equal(split.totalTrace.reason, 'accepted-next-line');
+  const rounded = resolveVeryfiDocument(JSON.parse(readFileSync('fixtures/veryfi-recorded/cash-rounding.json', 'utf8')));
+  assert.equal(rounded.total, 4.92);
+  assert.equal(rounded.totalTrace.decision, 'accepted');
+  const rewards = resolveVeryfiDocument(JSON.parse(readFileSync('fixtures/veryfi-recorded/rewards-balance.json', 'utf8')));
+  assert.equal(rewards.total, 12.34);
+  assert.equal(rewards.merchant, 'Harbor Books');
+  const edited = mergeReceiptReading({
+    local: {
+      merchant: 'Pine Grocery',
+      date: '2026-11-04',
+      total: 3.25,
+      currency: 'USD',
+      uncertainFields: [],
+      status: 'ready',
+      message: 'Review the details before saving.',
+    },
+    remote: rounded,
+  });
+  assert.equal(edited.total, 3.25);
+
+  const diagnostics = await server.ssrLoadModule('/src/server/fieldDiagnostics.ts');
+  const { mergeDiagnosticLog, sanitizeDiagnostic, shouldRetainTotalTrace } = diagnostics;
+  const dirty = sanitizeDiagnostic({
+    requestId: 'req-1',
+    at: '2026-11-05T18:00:00.000Z',
+    field: 'total',
+    decision: 'rejected',
+    reason: 'rejected-conflict',
+    candidates: [12.5, 15],
+    evidence: ['total:same-line:12.5', 'card 4111111111111111', 'person@example.com'],
+  });
+  assert.equal(dirty.evidence.some((item) => item.includes('4111') || item.includes('@')), false);
+  assert.equal(dirty.evidence[0], 'total:same-line:12.5');
+  assert.equal(shouldRetainTotalTrace('accepted-same-line'), false);
+  assert.equal(shouldRetainTotalTrace('accepted-next-line'), true);
+  const keptLog = mergeDiagnosticLog(
+    [
+      { requestId: 'old', at: '2026-11-01T00:00:00.000Z', field: 'total', decision: 'rejected', reason: 'rejected-no-label', candidates: [], evidence: [] },
+      ...Array.from({ length: 8 }, (_, index) => ({
+        requestId: `keep-${index}`,
+        at: '2026-11-05T18:00:00.000Z',
+        field: 'total',
+        decision: 'rejected',
+        reason: 'rejected-conflict',
+        candidates: [index],
+        evidence: [`total:same-line:${index}.00`],
+      })),
+    ],
+    dirty,
+    Date.parse('2026-11-05T19:00:00.000Z'),
+  );
+  assert.equal(keptLog.length, 8);
+  assert.equal(keptLog.some((item) => item.requestId === 'old'), false);
+  assert.equal(keptLog[keptLog.length - 1].requestId, 'req-1');
+
+  const { toVeryfiDocument } = liveMod;
+  const mapped = toVeryfiDocument({
+    vendor: { raw_name: 'Northline Market' },
+    total: 17.6,
+    subtotal: 16.4,
+    tax: 1.2,
+    ocr_text: 'Northline Market\nTOTAL\n17.60',
+    payment: { card_number: '4111111111111111', type: 'visa' },
+    meta: {
+      pages: [{
+        ocr: {
+          lines: [
+            { text: 'TOTAL', bounding_box: [0.1, 0.8, 0.3, 0.82] },
+            { text: '17.60', bounding_box: [0.6, 0.8, 0.8, 0.82] },
+          ],
+        },
+      }],
+    },
+  });
+  assert.equal(JSON.stringify(mapped).includes('4111'), false);
+  assert.equal(mapped.total, 17.6);
+  assert.equal(mapped.layoutLines.length, 2);
+  assert.equal(resolveVeryfiDocument(mapped).total, 17.6);
+
   const dialog = readFileSync('src/components/dialogs/SnapReceiptDialog.tsx', 'utf8');
   const client = readFileSync('src/lib/ocr/serverExtraction.ts', 'utf8');
   assert.doesNotMatch(dialog, /veryfiMockFallback|applyMockCase|MOCK_VERYFI_RESPONSES/);
@@ -144,7 +247,36 @@ try {
   assert.equal(recordedBody.mode, 'recorded');
   assert.equal(recordedBody.total, 7.25);
   assert.equal(recordedBody.merchant, 'Corner Newsstand');
+  assert.equal(recordedBody.totalTrace, undefined);
   assert.equal(calls, 1);
+
+  resetExtractGuards();
+  const noted = [];
+  let reserved = 0;
+  const splitResponse = await post(jpeg, { name: 'split-line-total.png', key: 'split-line-key-01' }, {
+    selectRecorded() {
+      return JSON.parse(readFileSync('fixtures/veryfi-recorded/split-line-total.json', 'utf8'));
+    },
+    reserveAttempt() {
+      reserved += 1;
+      return true;
+    },
+    recordDiagnostic(entry) {
+      noted.push(entry);
+    },
+  });
+  const splitBody = await splitResponse.json();
+  assert.equal(splitResponse.status, 200);
+  assert.equal(splitBody.total, 17.6);
+  assert.equal(splitBody.merchant, 'Northline Market');
+  assert.equal(splitBody.totalTrace, undefined);
+  assert.doesNotMatch(JSON.stringify(splitBody), /ocr_text|16\.40|SUBTOTAL/);
+  assert.equal(reserved, 0);
+  assert.equal(liveDocumentCount(), 0);
+  assert.equal(noted.length, 1);
+  assert.equal(noted[0].reason, 'accepted-next-line');
+  assert.equal(noted[0].requestId, 'split-line-key-01');
+  assert.equal(noted[0].evidence.some((item) => /Northline|November/.test(item)), false);
 
   resetExtractGuards();
   let liveCalls = 0;

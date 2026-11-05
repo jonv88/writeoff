@@ -6,6 +6,7 @@
 import { detectReceiptMimeFromMagicBytes } from '../lib/ocr/importFileValidation.ts';
 import { resolveVeryfiDocument, type VeryfiDocumentShape } from '../lib/ocr/receiptEvidence.ts';
 import { reserveDurableAttempt } from './attemptLedger.ts';
+import { persistFieldDiagnostic, sanitizeDiagnostic, shouldRetainTotalTrace, type FieldDiagnostic } from './fieldDiagnostics.ts';
 import { ownerCodeMatches } from './ownerAccess.ts';
 import { processVeryfiDocument, VeryfiRequestError, type VeryfiCredentials } from './veryfiLive.ts';
 
@@ -100,13 +101,17 @@ function sameOrigin(request: Request, allowedOrigins: string[]): boolean {
 
 function readingBody(doc: VeryfiDocumentShape, mode: 'live' | 'recorded', duplicate: boolean) {
   const reading = resolveVeryfiDocument(doc);
+  const { totalTrace, ...publicReading } = reading;
   return {
-    provider: 'veryfi',
-    mode,
-    duplicate,
-    documentType: doc.document_type ?? null,
-    ...reading,
-    version: 'veryfi-evidence-2026.11.05',
+    body: {
+      provider: 'veryfi',
+      mode,
+      duplicate,
+      documentType: doc.document_type ?? null,
+      ...publicReading,
+      version: 'veryfi-evidence-2026.11.05',
+    },
+    totalTrace,
   };
 }
 
@@ -137,6 +142,7 @@ export async function handleExtractReceipt(
     selectRecorded?: (fileName: string) => VeryfiDocumentShape | null;
     allowedOrigins?: string[];
     reserveAttempt?: (cap: number) => Promise<boolean>;
+    recordDiagnostic?: (entry: FieldDiagnostic) => Promise<void> | void;
   },
 ): Promise<Response> {
   const env = options?.env || {};
@@ -240,6 +246,28 @@ export async function handleExtractReceipt(
     return failure(502, message);
   }
 
-  const body = JSON.stringify(readingBody(document, mode, false));
+  const packed = readingBody(document, mode, false);
+  const trace = packed.totalTrace;
+  if (trace && shouldRetainTotalTrace(trace.reason)) {
+    const entry = sanitizeDiagnostic({
+      requestId: idempotencyKey,
+      at: new Date().toISOString(),
+      field: 'total',
+      decision: trace.decision,
+      reason: trace.reason,
+      candidates: trace.candidates,
+      evidence: trace.evidence,
+    });
+    try {
+      if (options?.recordDiagnostic) await options.recordDiagnostic(entry);
+      else if (mode === 'live') {
+        const token = env.VERYFI_ATTEMPT_TOKEN || env.BLOB_READ_WRITE_TOKEN || '';
+        if (token) await persistFieldDiagnostic(token, entry);
+      }
+    } catch {
+      // A diagnostic note must not fail the scan or change the attempt count.
+    }
+  }
+  const body = JSON.stringify(packed.body);
   return remember(idempotencyKey, hash, 200, body);
 }

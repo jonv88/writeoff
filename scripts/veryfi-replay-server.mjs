@@ -17,6 +17,12 @@ const fixtures = new Map([
   ['gt-coffee-digital.jpg', JSON.parse(readFileSync('fixtures/veryfi-recorded/gt-coffee-digital.json', 'utf8'))],
   ['gt-conflicting-totals.png', JSON.parse(readFileSync('fixtures/veryfi-recorded/gt-conflicting-totals.json', 'utf8'))],
   ['gt-conflicting-totals.jpg', JSON.parse(readFileSync('fixtures/veryfi-recorded/gt-conflicting-totals.json', 'utf8'))],
+  ['split-line-total.png', JSON.parse(readFileSync('fixtures/veryfi-recorded/split-line-total.json', 'utf8'))],
+  ['split-line-total.jpg', JSON.parse(readFileSync('fixtures/veryfi-recorded/split-line-total.json', 'utf8'))],
+  ['cash-rounding.png', JSON.parse(readFileSync('fixtures/veryfi-recorded/cash-rounding.json', 'utf8'))],
+  ['cash-rounding.jpg', JSON.parse(readFileSync('fixtures/veryfi-recorded/cash-rounding.json', 'utf8'))],
+  ['rewards-balance.png', JSON.parse(readFileSync('fixtures/veryfi-recorded/rewards-balance.json', 'utf8'))],
+  ['rewards-balance.jpg', JSON.parse(readFileSync('fixtures/veryfi-recorded/rewards-balance.json', 'utf8'))],
 ]);
 
 const server = createServer(async (req, res) => {
@@ -39,7 +45,7 @@ const server = createServer(async (req, res) => {
   const response = path === '/api/preview-access'
     ? await handlePreviewAccess(request, process.env)
     : await handleExtractReceipt(request, {
-    allowedOrigins: ['http://127.0.0.1:5173', 'http://localhost:5173', 'http://127.0.0.1:5174', 'http://localhost:5174', 'http://127.0.0.1:5176', 'http://localhost:5176'],
+    allowedOrigins: ['http://127.0.0.1:5173', 'http://localhost:5173', 'http://127.0.0.1:5174', 'http://localhost:5174', 'http://127.0.0.1:5176', 'http://localhost:5176', 'http://127.0.0.1:5181', 'http://localhost:5181'],
     selectRecorded(fileName) {
       return fixtures.get(fileName) || null;
     },
