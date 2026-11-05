@@ -66,6 +66,7 @@ export function SnapReceiptDialog({
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [statusMsg, setStatusMsg] = useState('');
+  const [providerLine, setProviderLine] = useState('');
   const [merchant, setMerchant] = useState('');
   const [amount, setAmount] = useState('');
   const [date, setDate] = useState('');
@@ -215,6 +216,7 @@ export function SnapReceiptDialog({
     setMatchId('');
     setServerStoragePath(null);
     setError('');
+    setProviderLine('');
     setCaptureHint(
       source === 'camera'
         ? 'Take photo uses the device camera when the browser supports it (capture=environment). On many desktops the system file picker opens instead.'
@@ -259,6 +261,7 @@ export function SnapReceiptDialog({
         setOcrProvider(remote.reading.provider);
         setExtractionVersion(remote.reading.version);
         setExtractionStatus(remote.reading.status);
+        setProviderLine(remote.reused ? 'Veryfi already processed this photo.' : 'Veryfi processed this photo.');
         applyOcrToForm(remote.reading);
         setPhase('review');
         setPipeline(remote.reading.uncertainFields.length ? 'needs_manual' : 'details_filled');
@@ -268,6 +271,7 @@ export function SnapReceiptDialog({
       setPhase('review');
       setPipeline('needs_manual');
       setExtractionStatus('failed');
+      setProviderLine('Veryfi did not process this photo.');
       setUncertain(['merchant', 'date', 'total']);
       setError(remote.message);
       setStatusMsg(remote.message);
@@ -302,7 +306,8 @@ export function SnapReceiptDialog({
     );
     applyOcrToForm(result);
     setPhase('review');
-    setStatusMsg('Sending photo for receipt reading…');
+    setProviderLine('Checking whether Veryfi processed this photo.');
+    setStatusMsg('Read on this device. Waiting for the receipt service.');
     bumpSession((prev) => ({ ...prev, snaps: prev.snaps + 1, reviews: prev.reviews + 1 }));
 
     const remote = await requestServerExtraction(attachFile || f);
@@ -315,7 +320,14 @@ export function SnapReceiptDialog({
     setOcrProvider(merged.provider || null);
     setExtractionVersion(merged.version || '');
     setExtractionStatus(merged.status);
-    if (!remote.ok) setError(remote.message);
+    setProviderLine(
+      remote.processed
+        ? remote.reused
+          ? 'Veryfi already processed this photo.'
+          : 'Veryfi processed this photo.'
+        : 'Veryfi did not process this photo.',
+    );
+    if (!remote.ok) setError('');
     applyOcrToForm(merged);
 
     if (merged.merchant && merged.date && merged.total != null) {
@@ -469,8 +481,8 @@ export function SnapReceiptDialog({
         <p>Photograph or choose a receipt. No bank connection required.</p>
         {browserMode && phase === 'pick' && (
           <div className="notice" style={{ marginBottom: 12 }}>
-            The photo is read on this device and sent for receipt reading. Review merchant, date, and
-            amount before saving. Nothing is saved until you confirm.
+            The photo is read on this device first. The review screen says whether Veryfi processed
+            it. Review merchant, date, and amount before saving. Nothing is saved until you confirm.
           </div>
         )}
         <p className="formhint">
@@ -582,7 +594,8 @@ export function SnapReceiptDialog({
               </div>
             )}
             <div className={`notice ${uncertain.length ? 'warningnote' : ''}`}>
-              {statusMsg || 'Review the details before saving.'}
+              <strong>{providerLine || 'Veryfi did not process this photo.'}</strong>
+              <div>{statusMsg || 'Review the details before saving.'}</div>
             </div>
             {uncertain.length > 0 && (
               <p className="formhint">

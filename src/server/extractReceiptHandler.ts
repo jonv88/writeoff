@@ -5,18 +5,20 @@
  */
 import { detectReceiptMimeFromMagicBytes } from '../lib/ocr/importFileValidation.ts';
 import { resolveVeryfiDocument, type VeryfiDocumentShape } from '../lib/ocr/receiptEvidence.ts';
+import { reserveDurableAttempt } from './attemptLedger.ts';
 import { processVeryfiDocument, VeryfiRequestError, type VeryfiCredentials } from './veryfiLive.ts';
 
 export const ALLOWED_PREVIEW_BRANCH = 'cursor/veryfi-live-scan-9e74';
 export const MAX_RECEIPT_UPLOAD_BYTES = 2_500_000;
-export const DEFAULT_DOC_CAP = 6;
+export const DEFAULT_DOC_CAP = 3;
 
 export type ExtractEnv = {
   VERCEL_ENV?: string;
   VERCEL_GIT_COMMIT_REF?: string;
   VERYFI_LIVE_CALLS?: string;
   VERYFI_PREVIEW_DOC_CAP?: string;
-  VERYFI_ALLOWED_SHA256?: string;
+  VERYFI_ATTEMPT_TOKEN?: string;
+  BLOB_READ_WRITE_TOKEN?: string;
   VERYFI_CLIENT_ID?: string;
   VERYFI_USERNAME?: string;
   VERYFI_API_KEY?: string;
@@ -27,14 +29,12 @@ type CacheEntry = { hash: string; body: string; status: number };
 const idempotency = new Map<string, CacheEntry>();
 const byHash = new Map<string, CacheEntry>();
 const pending = new Set<string>();
-const counted = new Set<string>();
 let liveCount = 0;
 
 export function resetExtractGuards(): void {
   idempotency.clear();
   byHash.clear();
   pending.clear();
-  counted.clear();
   liveCount = 0;
 }
 
@@ -108,12 +108,6 @@ function readingBody(doc: VeryfiDocumentShape, mode: 'live' | 'recorded', duplic
   };
 }
 
-function allowedHashes(env: ExtractEnv): Set<string> | null {
-  const raw = (env.VERYFI_ALLOWED_SHA256 || '').trim();
-  if (!raw) return null;
-  return new Set(raw.split(',').map((item) => item.trim().toLowerCase()).filter(Boolean));
-}
-
 function remember(key: string, hash: string, status: number, body: string): Response {
   const entry = { hash, body, status };
   idempotency.set(key, entry);
@@ -140,6 +134,7 @@ export async function handleExtractReceipt(
     processDocument?: (bytes: Uint8Array, mime: string) => Promise<VeryfiDocumentShape>;
     selectRecorded?: (fileName: string) => VeryfiDocumentShape | null;
     allowedOrigins?: string[];
+    reserveAttempt?: (cap: number) => Promise<boolean>;
   },
 ): Promise<Response> {
   const env = options?.env || {};
@@ -191,37 +186,42 @@ export async function handleExtractReceipt(
     } else if (env.VERYFI_LIVE_CALLS !== '1') {
       return failure(503, 'Live receipt reading is turned off.');
     } else {
-      const allow = allowedHashes(env);
-      if (allow && !allow.has(hash)) {
-        return failure(429, 'This preview has reached its receipt reading limit.');
+      const credentials: VeryfiCredentials = {
+        clientId: env.VERYFI_CLIENT_ID || '',
+        username: env.VERYFI_USERNAME || '',
+        apiKey: env.VERYFI_API_KEY || '',
+      };
+      if (!options?.processDocument && (!credentials.clientId || !credentials.username || !credentials.apiKey)) {
+        return failure(503, 'Live receipt reading is turned off.');
       }
       const cap = Number(env.VERYFI_PREVIEW_DOC_CAP || DEFAULT_DOC_CAP);
-      if (!counted.has(hash) && (!Number.isFinite(cap) || cap < 1 || liveCount >= cap)) {
+      if (!Number.isFinite(cap) || cap < 1) {
         return failure(429, 'This preview has reached its receipt reading limit.');
       }
-      if (!counted.has(hash)) {
-        counted.add(hash);
-        liveCount += 1;
+      let reserved = false;
+      if (options?.reserveAttempt) {
+        reserved = await options.reserveAttempt(cap);
+      } else if (options?.processDocument) {
+        if (liveCount < cap) {
+          liveCount += 1;
+          reserved = true;
+        }
+      } else if (!env.VERYFI_ATTEMPT_TOKEN && !env.BLOB_READ_WRITE_TOKEN) {
+        return failure(503, 'Live receipt reading is turned off.');
+      } else {
+        try {
+          reserved = await reserveDurableAttempt(env.VERYFI_ATTEMPT_TOKEN || env.BLOB_READ_WRITE_TOKEN || '', cap);
+        } catch {
+          return failure(503, 'Live receipt reading is turned off.');
+        }
       }
+      if (!reserved) return failure(429, 'This preview has reached its receipt reading limit.');
       pending.add(hash);
       mode = 'live';
       try {
-        if (options?.processDocument) {
-          document = await options.processDocument(bytes, mime);
-        } else {
-          const credentials: VeryfiCredentials = {
-            clientId: env.VERYFI_CLIENT_ID || '',
-            username: env.VERYFI_USERNAME || '',
-            apiKey: env.VERYFI_API_KEY || '',
-          };
-          if (!credentials.clientId || !credentials.username || !credentials.apiKey) {
-            counted.delete(hash);
-            liveCount -= 1;
-            pending.delete(hash);
-            return failure(503, 'Live receipt reading is turned off.');
-          }
-          document = await processVeryfiDocument(bytes, mime, credentials, fetch, hash);
-        }
+        document = options?.processDocument
+          ? await options.processDocument(bytes, mime)
+          : await processVeryfiDocument(bytes, mime, credentials, fetch, hash);
       } finally {
         pending.delete(hash);
       }

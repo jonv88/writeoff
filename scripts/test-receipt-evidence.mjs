@@ -209,41 +209,31 @@ try {
   resetExtractGuards();
   const digest = await crypto.subtle.digest('SHA-256', jpeg);
   const jpegHash = [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, '0')).join('');
-  let allowedCalls = 0;
-  const blocked = await post(jpeg, { key: 'allow-key-1' }, {
-    env: { VERYFI_LIVE_CALLS: '1', VERYFI_ALLOWED_SHA256: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' },
-    processDocument: async () => {
-      allowedCalls += 1;
-      return { ocr_text: 'TOTAL 1.00' };
+  let openCalls = 0;
+  const notHashed = await post(Uint8Array.from([...jpeg, 3]), { key: 'open-photo-1' }, {
+    env: {
+      VERYFI_LIVE_CALLS: '1',
+      VERYFI_ALLOWED_SHA256: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      VERYFI_PREVIEW_DOC_CAP: '3',
     },
-  });
-  assert.equal(blocked.status, 429);
-  assert.equal(allowedCalls, 0);
-  const allowed = await post(jpeg, { key: 'allow-key-2' }, {
-    env: { VERYFI_LIVE_CALLS: '1', VERYFI_ALLOWED_SHA256: jpegHash, VERYFI_PREVIEW_DOC_CAP: '1' },
     processDocument: async () => {
-      allowedCalls += 1;
+      openCalls += 1;
       return { vendor: { raw_name: 'Walmart' }, date: '2026-11-01', total: 19.9, ocr_text: 'Walmart\nTOTAL 19.90', document_type: 'receipt' };
     },
   });
-  const allowedBody = await allowed.json();
-  assert.equal(allowed.status, 200);
-  assert.equal(allowedBody.documentType, 'receipt');
-  assert.equal(allowedCalls, 1);
-  const outside = await post(Uint8Array.from([...jpeg, 7]), { key: 'allow-key-3' }, {
-    env: { VERYFI_LIVE_CALLS: '1', VERYFI_ALLOWED_SHA256: jpegHash, VERYFI_PREVIEW_DOC_CAP: '6' },
-    processDocument: async () => {
-      allowedCalls += 1;
-      return { ocr_text: 'TOTAL 1.00' };
-    },
-  });
-  assert.equal(outside.status, 429);
-  assert.equal(allowedCalls, 1);
+  assert.equal(notHashed.status, 200);
+  assert.equal(openCalls, 1);
 
   resetExtractGuards();
+  let ledger = 0;
   let attempts = 0;
   const flaky = {
-    env: { VERYFI_LIVE_CALLS: '1', VERYFI_PREVIEW_DOC_CAP: '1' },
+    env: { VERYFI_LIVE_CALLS: '1', VERYFI_PREVIEW_DOC_CAP: '3' },
+    reserveAttempt: async (cap) => {
+      if (ledger >= cap) return false;
+      ledger += 1;
+      return true;
+    },
     processDocument: async () => {
       attempts += 1;
       if (attempts === 1) throw new Error('timeout');
@@ -255,10 +245,19 @@ try {
   const retried = await post(jpeg, { key: 'retry-key-2' }, flaky);
   assert.equal(retried.status, 200);
   assert.equal(attempts, 2);
-  assert.equal(liveDocumentCount(), 1);
-  const seventh = await post(Uint8Array.from([...jpeg, 4]), { key: 'retry-key-3' }, flaky);
-  assert.equal(seventh.status, 429);
-  assert.equal(attempts, 2);
+  assert.equal(ledger, 2);
+  const thirdPhoto = await post(Uint8Array.from([...jpeg, 4]), { key: 'retry-key-3' }, flaky);
+  assert.equal(thirdPhoto.status, 200);
+  const fourth = await post(Uint8Array.from([...jpeg, 5]), { key: 'retry-key-4' }, flaky);
+  assert.equal(fourth.status, 429);
+  assert.equal(attempts, 3);
+  assert.equal(ledger, 3);
+
+  resetExtractGuards();
+  const noLedger = await post(jpeg, { key: 'no-ledger-1' }, {
+    env: { VERYFI_LIVE_CALLS: '1', VERYFI_CLIENT_ID: 'test-client', VERYFI_USERNAME: 'test-user', VERYFI_API_KEY: 'test-key' },
+  });
+  assert.equal(noLedger.status, 503);
 
   let seenKey = '';
   let boost = null;
