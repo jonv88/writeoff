@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "writeoff-supabase": {
+      "url": "https://mcp.supabase.com/mcp?project_ref=bmmoaticogacrsqztafq&features=database,debugging,development,docs"
+    },
+    "writeoff-vercel": {
+      "url": "https://mcp.vercel.com"
+    }
+  }
+}
