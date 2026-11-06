@@ -7,6 +7,9 @@ export const APPROVED_PLAN = {
   label: '$9.99 per month',
 } as const;
 
+/** Entitlement row used by checkout and receipt allowances. */
+export const BILLING_PRODUCT_ID = 'writeoff';
+
 export function isApprovedPlan(plan: { amountCents: number; currency: string; interval: string }): boolean {
   return plan.amountCents === APPROVED_PLAN.amountCents
     && plan.currency === APPROVED_PLAN.currency

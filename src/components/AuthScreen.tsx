@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { LegalNotice } from './LegalNotice';
 import {
   clearLocalWorkspaceData,
   emptyLocalWorkspace,
@@ -255,6 +256,7 @@ export function AuthScreen({ onLocalPreview }: { onLocalPreview?: () => void }) 
               <button type="button" className="linkbtn" onClick={() => startLocal(false)}>
                 Or start an empty local workspace
               </button>
+              <LegalNotice />
             </>
           )}
         </div>

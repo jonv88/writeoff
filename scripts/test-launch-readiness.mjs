@@ -240,7 +240,7 @@ try {
     id: 'evt_test_1',
     type: 'checkout.session.completed',
     created: now,
-    data: { object: { client_reference_id: 'customer-a', status: 'complete' } },
+    data: { object: { client_reference_id: 'customer-a', status: 'complete', payment_status: 'paid' } },
   });
   const signature = crypto.createHmac('sha256', secret).update(`${now}.${payload}`).digest('hex');
   const header = `t=${now},v1=${signature}`;
@@ -272,13 +272,17 @@ try {
     cancelUrl: 'https://preview.test/?checkout=cancel',
     fetchImpl: async (url, init) => {
       called += 1;
+      assert.match(String(init.headers.Authorization), /sk_test_example/);
+      if (String(url).includes('/v1/prices/')) {
+        return new Response(JSON.stringify({ unit_amount: 999, currency: 'usd', recurring: { interval: 'month' } }), { status: 200 });
+      }
       assert.equal(url, 'https://api.stripe.com/v1/checkout/sessions');
       assert.match(String(init.body), /price_test_123/);
-      assert.match(String(init.headers.Authorization), /sk_test_example/);
+      assert.match(String(init.body), /subscription_data%5Bmetadata%5D%5Bowner_id%5D/);
       return new Response(JSON.stringify({ url: 'https://checkout.stripe.com/c/pay/cs_test_123' }), { status: 200 });
     },
   });
-  assert.equal(called, 1);
+  assert.equal(called, 2);
   assert.match(checkout.url, /cs_test_123/);
 
   const storeMod = await server.ssrLoadModule('/src/server/entitlementStore.ts');
@@ -288,7 +292,7 @@ try {
     id: 'evt_store_1',
     type: 'checkout.session.completed',
     created: now,
-    data: { object: { client_reference_id: customerId, status: 'complete' } },
+    data: { object: { client_reference_id: customerId, status: 'complete', payment_status: 'paid' } },
   });
   const storedHeader = `t=${now},v1=${crypto.createHmac('sha256', secret).update(`${now}.${storedPayload}`).digest('hex')}`;
   const stored = await storeMod.recordVerifiedStripeEvent({

@@ -1,3 +1,4 @@
+import { BILLING_PRODUCT_ID } from '../src/lib/billing/plan.ts';
 import { entitlementStoreFromEnv, recordVerifiedStripeEvent } from '../src/server/entitlementStore.ts';
 
 type NodeRequest = {
@@ -39,7 +40,7 @@ export default async function handler(req: NodeRequest, res: NodeResponse): Prom
       header: signature,
       secret,
       nowSec: Math.floor(Date.now() / 1000),
-      productId: process.env.STRIPE_PRODUCT_ID || 'writeoff-sandbox',
+      productId: process.env.STRIPE_PRODUCT_ID || BILLING_PRODUCT_ID,
       store,
     });
     res.statusCode = 200;

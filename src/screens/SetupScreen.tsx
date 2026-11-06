@@ -8,6 +8,7 @@ import {
 import { importExpenses, saveMerchantRule, saveProfile } from '../lib/data';
 import { DELETION_RETENTION } from '../lib/account/deletion';
 import { APPROVED_PLAN } from '../lib/billing/plan';
+import { LegalNotice } from '../components/LegalNotice';
 import { expensesToCsv } from '../lib/records/csvExport';
 import { uid } from '../lib/core';
 
@@ -234,6 +235,7 @@ export function SetupScreen({ onSetup }: { onSetup: () => void }) {
             <p className="helper">Checkout was canceled. No payment was recorded.</p>
           )}
           <span className="badge statuspending">No subscription</span>
+          <LegalNotice />
         </div>
 
         {localPreview && (

@@ -632,7 +632,8 @@ export function SnapReceiptDialog({
               or files. JPEG/PNG preferred · large photos are resized for OCR. Cancel anytime —
               nothing is saved until you confirm. Reading starts on this device. A photo is sent
               to the receipt service only when cloud reading is turned on for an active {APPROVED_PLAN.label} subscription.
-              Cloud reading is off, so this photo stays here for you to review and edit. The service
+              Cloud reading is off, so this photo stays here for you to review and edit. Photos over 3 MB
+              are not stored. The service
               does not keep a copy, and the private copy in your account is removed when you delete
               the expense or the account.
               {localPreview
