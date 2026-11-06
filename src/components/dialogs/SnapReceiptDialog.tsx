@@ -559,6 +559,7 @@ export function SnapReceiptDialog({
                       });
                     }
                     userTouched.current = { merchant: true, amount: true, date: true };
+                    setProviderLine('On-device reading kept. The receipt service did not receive this photo.');
                     setPhase('review');
                     setDraftOffer(null);
                   })();
@@ -688,7 +689,7 @@ export function SnapReceiptDialog({
               </div>
             )}
             <div className={`notice ${uncertain.length ? 'warningnote' : ''}`}>
-              <strong>{providerLine || 'Veryfi did not process this photo.'}</strong>
+              <strong>{providerLine || 'On-device reading kept. The receipt service did not receive this photo.'}</strong>
               <div>{statusMsg || 'Review the details before saving.'}</div>
             </div>
             {uncertain.length > 0 && (
