@@ -44,6 +44,7 @@ export default async function handler(req: CustomerRequest, res: Response) {
         },
         disconnect: (id) => store.status(id, 'disconnected'),
       });
+      await store.purge();
       return send(200, { revoked: revoked.length });
     }
     if (!connectionId || !/^[0-9a-f-]{36}$/i.test(connectionId)) return send(400, { error: 'Choose a bank connection.' });

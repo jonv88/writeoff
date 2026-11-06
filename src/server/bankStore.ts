@@ -62,5 +62,11 @@ export function bankStore(client: SupabaseClient, ownerId: string) {
       const { error } = await client.from('bank_connections').update({ status, ...(status === 'disconnected' ? { encrypted_token: null } : {}) }).eq('id', id).eq('user_id', ownerId);
       if (error) throw new Error('Bank status could not be saved.');
     },
+    async purge() {
+      const transactions = await client.from('bank_transactions').delete().eq('user_id', ownerId);
+      if (transactions.error) throw new Error('Bank history could not be removed.');
+      const connections = await client.from('bank_connections').delete().eq('user_id', ownerId);
+      if (connections.error) throw new Error('Bank connections could not be removed.');
+    },
   };
 }
