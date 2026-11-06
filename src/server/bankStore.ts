@@ -19,6 +19,22 @@ export function tokenVault(encodedKey: string) {
     },
   };
 }
+/** Revoke each provider item before its stored token is cleared. A failed revoke leaves that token in place. */
+export async function revokeConnectedTokens(input: {
+  rows: { id: string; encrypted_token: string }[];
+  ownerId: string;
+  open: (value: string, ownerId: string) => string;
+  remove: (accessToken: string) => Promise<unknown>;
+  disconnect: (id: string) => Promise<void>;
+}): Promise<string[]> {
+  const removed: string[] = [];
+  for (const row of input.rows) {
+    await input.remove(input.open(row.encrypted_token, input.ownerId));
+    await input.disconnect(row.id);
+    removed.push(row.id);
+  }
+  return removed;
+}
 export function bankStore(client: SupabaseClient, ownerId: string) {
   return {
     async list() {
@@ -36,6 +52,11 @@ export function bankStore(client: SupabaseClient, ownerId: string) {
     async commit(id: string, cursor: string | null, batch: unknown) {
       const { error } = await client.rpc('commit_bank_sync', { p_owner: ownerId, p_connection: id, p_expected_cursor: cursor, p_batch: batch });
       if (error) throw new Error('Bank sync was not saved. Refresh and retry.');
+    },
+    async connectedTokens() {
+      const { data, error } = await client.from('bank_connections').select('id,encrypted_token').eq('user_id', ownerId).neq('status', 'disconnected').not('encrypted_token', 'is', null);
+      if (error) throw new Error('Bank connections could not be read.');
+      return (data || []).filter((row): row is { id: string; encrypted_token: string } => typeof row.encrypted_token === 'string' && row.encrypted_token.length > 0);
     },
     async status(id: string, status: string) {
       const { error } = await client.from('bank_connections').update({ status, ...(status === 'disconnected' ? { encrypted_token: null } : {}) }).eq('id', id).eq('user_id', ownerId);

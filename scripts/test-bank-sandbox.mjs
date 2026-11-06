@@ -6,12 +6,16 @@ const vite = await createServer({server:{middlewareMode:true},appType:'custom',l
 const a='11111111-1111-4111-8111-111111111111', b='22222222-2222-4222-8222-222222222222';
 try {
  const { plaidSandbox } = await vite.ssrLoadModule('/src/server/plaidSandbox.ts');
- const { tokenVault } = await vite.ssrLoadModule('/src/server/bankStore.ts');
+ const { tokenVault, revokeConnectedTokens } = await vite.ssrLoadModule('/src/server/bankStore.ts');
  const { customerFromRequest } = await vite.ssrLoadModule('/src/server/customerRequest.ts');
  assert.throws(()=>plaidSandbox({PLAID_ENV:'production',PLAID_CLIENT_ID:'x',PLAID_SECRET:'x'}));
  await assert.rejects(customerFromRequest({headers:{origin:'https://attacker.example',authorization:'Bearer pretend'}},{WRITEOFF_APP_ORIGIN:'https://writeoff.example'}));
  const vault=tokenVault(Buffer.alloc(32,7).toString('base64')), encrypted=vault.seal('access-sandbox-private',a);
  assert.equal(vault.open(encrypted,a),'access-sandbox-private'); assert.throws(()=>vault.open(encrypted,b)); assert.ok(!encrypted.includes('access-sandbox'));
+ const removed=[]; const cleared=[];
+ assert.deepEqual(await revokeConnectedTokens({rows:[{id:'connection-1',encrypted_token:encrypted}],ownerId:a,open:vault.open,remove:async(token)=>{removed.push(token);},disconnect:async(id)=>{cleared.push(id);}}),['connection-1']);
+ assert.deepEqual(removed,['access-sandbox-private']); assert.deepEqual(cleared,['connection-1']);
+ await assert.rejects(revokeConnectedTokens({rows:[{id:'connection-1',encrypted_token:encrypted}],ownerId:b,open:vault.open,remove:async()=>{throw new Error('must not revoke');},disconnect:async()=>{}}));
  const env={PLAID_ENV:'sandbox',PLAID_CLIENT_ID:'id',PLAID_SECRET:'secret'};
  const calls=[]; let count=0;
  const provider=plaidSandbox(env,async(url,options)=>{

@@ -8,7 +8,7 @@ Use a dedicated Writeoff database only. Never use Rhev or RHEV Development. Appl
 
 Set server variables in the isolated Preview: PLAID_ENV=sandbox, PLAID_CLIENT_ID, PLAID_SECRET (Sandbox key), BANK_TOKEN_KEY (32 random bytes base64), WRITEOFF_APP_ORIGIN (exact Preview origin), SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY. Keep all out of VITE variables. Browser Auth uses the existing public Supabase configuration. Obtain Sandbox keys at https://dashboard.plaid.com/developers/keys. No real bank credentials are requested by Writeoff.
 
-Sign in, open Accounts, Connect a test bank. Use Plaid's Sandbox institution and test login. Complete Link, then Sync. Initial sync may return no rows while Plaid prepares history; retry Sync. Import explicitly from staged posted purchases. Resync and repeat import to verify idempotency. Disconnect revokes the provider Item and removes its stored token, while retaining saved expenses. Reconnect opens Link update mode after ITEM_LOGIN_REQUIRED.
+Sign in, open Accounts, Connect a test bank. Use Plaid's Sandbox institution and test login. Complete Link, then Sync. Initial sync may return no rows while Plaid prepares history; retry Sync. Import explicitly from staged posted purchases. Resync and repeat import to verify idempotency. Disconnect revokes the provider Item and removes its stored token, while retaining saved expenses. Deleting the signed-in account asks the server to revoke every remaining Sandbox item before other records are removed. If that revoke fails, the records stay. Reconnect opens Link update mode after ITEM_LOGIN_REQUIRED.
 
 ## Behavior and limits
 

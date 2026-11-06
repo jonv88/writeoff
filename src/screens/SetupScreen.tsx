@@ -38,7 +38,7 @@ export function SetupScreen({ onSetup }: { onSetup: () => void }) {
     loadSampleData,
     resetToEmpty,
   } = useWorkspace();
-  const { user, signOut } = useAuth();
+  const { user, session, signOut } = useAuth();
   const legacy = useMemo(() => detectLegacyLocalStorage(), []);
   const [importing, setImporting] = useState(false);
   const [legacyMsg, setLegacyMsg] = useState<string | null>(null);
@@ -95,6 +95,17 @@ export function SetupScreen({ onSetup }: { onSetup: () => void }) {
     if (!confirmed) return;
     setDeleting(true);
     try {
+      if (session?.access_token) {
+        const response = await fetch('/api/bank', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+          body: JSON.stringify({ action: 'revoke-account' }),
+        });
+        if (response.status !== 503 && !response.ok) {
+          const data = (await response.json().catch(() => null)) as { error?: string } | null;
+          throw new Error(data?.error || 'Bank connections were not disconnected. Account records were kept.');
+        }
+      }
       await deleteOwnedCloudAccount(user.id);
       await signOut();
       showToast('Account records deleted.');

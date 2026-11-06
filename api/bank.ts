@@ -1,5 +1,5 @@
 import { customerFromRequest, type CustomerRequest } from '../src/server/customerRequest.ts';
-import { bankStore, tokenVault } from '../src/server/bankStore.ts';
+import { bankStore, revokeConnectedTokens, tokenVault } from '../src/server/bankStore.ts';
 import { plaidSandbox, PlaidFailure } from '../src/server/plaidSandbox.ts';
 type Response = { statusCode: number; setHeader(name: string, value: string): void; end(body?: string): void };
 export default async function handler(req: CustomerRequest, res: Response) {
@@ -33,6 +33,18 @@ export default async function handler(req: CustomerRequest, res: Response) {
       try { connectionId = await store.add(result.item_id, vault.seal(result.access_token, customer.ownerId)); }
       catch (error) { await provider.remove(result.access_token).catch(() => undefined); throw error; }
       return send(200, { connectionId });
+    }
+    if (input.action === 'revoke-account') {
+      const rows = await store.connectedTokens();
+      const revoked = await revokeConnectedTokens({
+        rows, ownerId: customer.ownerId, open: vault.open,
+        remove: async (accessToken) => {
+          try { await provider.remove(accessToken); }
+          catch (error) { if (!(error instanceof PlaidFailure) || error.code !== 'ITEM_NOT_FOUND') throw error; }
+        },
+        disconnect: (id) => store.status(id, 'disconnected'),
+      });
+      return send(200, { revoked: revoked.length });
     }
     if (!connectionId || !/^[0-9a-f-]{36}$/i.test(connectionId)) return send(400, { error: 'Choose a bank connection.' });
     const connection = await store.get(connectionId);
