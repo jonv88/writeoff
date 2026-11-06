@@ -2,31 +2,15 @@
 
 ## Minimum backend configuration (Writeoff)
 
-Auth, private receipt storage, and customer isolation are **not verified** until all of the following exist:
+Hosted accounts, receipt storage, sync, and subscription persistence are waiting on the project in `docs/APPLY_MIGRATIONS.md`. The quoted price is $10 per month. The project has not been created. Rhev and RHEV Development stay active.
 
-1. A **dedicated** Supabase project named for Writeoff (do not reuse Rhev / other apps).
-2. Migrations applied in order:
-   - `supabase/migrations/20261102190000_phase_a_foundation.sql`
-   - `supabase/migrations/20261102220000_phase_b_suggestions.sql`
-3. Environment variables (never commit real values):
-   ```bash
-   cp .env.example .env
-   # VITE_SUPABASE_URL=
-   # VITE_SUPABASE_ANON_KEY=
-   ```
-4. Auth email settings (confirm / reset redirect to your app origin).
-5. Isolation checklist: `docs/RLS_ISOLATION_TEST.md`
+1. Approve that configuration, then create the Writeoff project.
+2. Apply the three SQL files in the order in that document.
+3. Set the Preview-only variables named there, on branch `cursor/veryfi-live-scan-9e74`, and redeploy the private preview.
+4. Point Auth site URL and the recovery redirect at the private preview, not the public alias.
+5. Add the Stripe test-mode values and webhook in that document. Use `sk_test_` only.
 
-Automatic receipt extraction uses the **`extract-receipt` Edge Function** (not browser OCR keys).
-
-Server secrets only (Dashboard → Edge Functions → Secrets):
-
-```bash
-OCR_PROVIDER=mindee
-MINDEE_API_KEY=…
-```
-
-See `docs/RECEIPT_OCR.md` and `docs/APPLY_MIGRATIONS.md`. Without `MINDEE_API_KEY`, Snap still works with manual field entry (honest `blocked` OCR status).
+Receipt reading stays the private-preview scanner. Do not add a second OCR function. Isolation on a hosted project is still open; `docs/RLS_ISOLATION_TEST.md` is the checklist for after the project exists.
 
 ## Install & run
 ```bash

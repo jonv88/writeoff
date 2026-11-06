@@ -1,0 +1,57 @@
+{
+  "recordedAt": "2026-11-05T17:43:16Z",
+  "previewDeployment": "dpl_3BKoFWwv1Na8eR3L31nEXEj8nzD6",
+  "rate": "Published receipt rate $0.08. All six responses were document type receipt.",
+  "estimatedUsd": 0.48,
+  "actualInvoiceUsd": null,
+  "calls": [
+    {
+      "file": "gt-coffee-digital.png",
+      "latencyMs": 2469,
+      "merchant": "DEMO COFFEE CO",
+      "date": "2026-10-21",
+      "total": 4.9,
+      "uncertainFields": []
+    },
+    {
+      "file": "gt-restaurant-tip.png",
+      "latencyMs": 3915,
+      "merchant": "Riverbend Bistro",
+      "date": "2026-11-03",
+      "total": 29.3,
+      "uncertainFields": []
+    },
+    {
+      "file": "gt-savings-larger-than-total.png",
+      "latencyMs": 1508,
+      "merchant": "Greenfield Foods",
+      "date": "2026-11-02",
+      "total": 23.76,
+      "uncertainFields": []
+    },
+    {
+      "file": "gt-acme-balance.png",
+      "latencyMs": 2732,
+      "merchant": "ACME",
+      "date": null,
+      "total": 25.96,
+      "uncertainFields": ["date"]
+    },
+    {
+      "file": "gt-conflicting-totals.png",
+      "latencyMs": 1817,
+      "merchant": "Harbor Market",
+      "date": null,
+      "total": null,
+      "uncertainFields": ["date", "total"]
+    },
+    {
+      "file": "gt-walmart-chain.png",
+      "latencyMs": 1905,
+      "merchant": "Walmart",
+      "date": "2026-11-01",
+      "total": 19.9,
+      "uncertainFields": []
+    }
+  ]
+}

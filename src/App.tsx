@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { WorkspaceProvider } from './context/WorkspaceContext';
-import { AuthScreen } from './components/AuthScreen';
+import { AuthScreen, RecoveryPanel } from './components/AuthScreen';
 import { AppShell } from './components/AppShell';
+import { OwnerAccessGate } from './components/OwnerAccessGate';
 import { isLocalPreviewActive } from './lib/localWorkspace';
 
 function Gate() {
-  const { configured, loading, user } = useAuth();
+  const { configured, loading, user, recovery } = useAuth();
   const [localPreview, setLocalPreview] = useState(() => isLocalPreviewActive());
 
   useEffect(() => {
@@ -34,6 +35,10 @@ function Gate() {
     );
   }
 
+  if (configured && recovery) {
+    return <RecoveryPanel />;
+  }
+
   if (user || localPreview) {
     return (
       <WorkspaceProvider>
@@ -47,8 +52,10 @@ function Gate() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <Gate />
-    </AuthProvider>
+    <OwnerAccessGate>
+      <AuthProvider>
+        <Gate />
+      </AuthProvider>
+    </OwnerAccessGate>
   );
 }

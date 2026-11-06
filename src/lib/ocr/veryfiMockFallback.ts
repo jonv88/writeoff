@@ -4,6 +4,9 @@
  * This module never calls the network and never reads API credentials.
  */
 import { fieldHintsFor, formatOcrAmount, parseTotalFromText } from './browserOcr';
+import { evidenceDate } from './receiptEvidence.ts';
+
+export { evidenceDate };
 
 /** Hard stop. Do not flip this on from the client. */
 export const LIVE_VERYFI_CALLS_ENABLED = false;
@@ -82,66 +85,6 @@ export type MockFallbackResult = {
   accepted: string[];
   leftForReview: string[];
 };
-
-const MONTHS: Record<string, number> = {
-  jan: 1, january: 1, feb: 2, february: 2, mar: 3, march: 3, apr: 4, april: 4, may: 5,
-  jun: 6, june: 6, jul: 7, july: 7, aug: 8, august: 8, sep: 9, sept: 9, september: 9,
-  oct: 10, october: 10, nov: 11, november: 11, dec: 12, december: 12,
-};
-
-function isoDate(year: number, month: number, day: number): string | null {
-  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
-  const date = new Date(Date.UTC(year, month - 1, day));
-  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) {
-    return null;
-  }
-  return date.toISOString().slice(0, 10);
-}
-
-function fullYear(yearText: string): number {
-  const year = Number(yearText);
-  return yearText.length === 2 ? 2000 + year : year;
-}
-
-/** Month-name and year-first dates are unambiguous. Numeric dates with both parts ≤ 12 are not. */
-export function evidenceDate(text: string): { date: string | null; ambiguous: boolean } {
-  const unambiguous: string[] = [];
-  const ambiguousPairs: { mdy: string; dmy: string }[] = [];
-  const re =
-    /\b(?:(\d{4})\s*([-/.])\s*(\d{1,2})\s*\2\s*(\d{1,2})|(\d{1,2})\s*([-/.])\s*(\d{1,2})\s*\6\s*(\d{4}|\d{2})|([a-z]{3,9})\s+(\d{1,2}),?\s+(\d{4}))\b/gi;
-  let match: RegExpExecArray | null;
-  while ((match = re.exec(text))) {
-    if (match[1]) {
-      const iso = isoDate(Number(match[1]), Number(match[3]), Number(match[4]));
-      if (iso) unambiguous.push(iso);
-      continue;
-    }
-    if (match[9]) {
-      const month = MONTHS[match[9].toLowerCase()];
-      const iso = month ? isoDate(Number(match[11]), month, Number(match[10])) : null;
-      if (iso) unambiguous.push(iso);
-      continue;
-    }
-    const year = fullYear(match[8]);
-    const first = Number(match[5]);
-    const second = Number(match[7]);
-    const mdy = isoDate(year, first, second);
-    const dmy = isoDate(year, second, first);
-    if (mdy && dmy && mdy !== dmy) ambiguousPairs.push({ mdy, dmy });
-    else if (mdy) unambiguous.push(mdy);
-    else if (dmy) unambiguous.push(dmy);
-  }
-  const uniqueAnchors = [...new Set(unambiguous)];
-  if (ambiguousPairs.length) {
-    const resolved =
-      uniqueAnchors.length === 1 &&
-      ambiguousPairs.every((pair) => pair.mdy === uniqueAnchors[0] || pair.dmy === uniqueAnchors[0]);
-    if (resolved) return { date: uniqueAnchors[0], ambiguous: false };
-    return { date: null, ambiguous: true };
-  }
-  if (uniqueAnchors.length === 1) return { date: uniqueAnchors[0], ambiguous: false };
-  return { date: null, ambiguous: uniqueAnchors.length > 1 };
-}
 
 function sameMoney(a: number, b: number): boolean {
   return Math.abs(Math.round(a * 100) - Math.round(b * 100)) <= 2;

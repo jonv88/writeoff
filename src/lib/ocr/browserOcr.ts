@@ -6,37 +6,13 @@
 import type { OcrExtraction } from './adapter';
 import { US_MERCHANTS } from './usMerchants';
 import { prepareReceiptPhoto } from './photoPrep';
+import { parseTotalFromText, reconcileReceiptOcrText } from './receiptTotals.ts';
+
+export { parseTotalFromText, reconcileReceiptOcrText };
 
 const VERSION = 'browser-tesseract-2026.11.04c';
 
 const CUSTOMER_REVIEW_MSG = 'Review the details before saving.';
-
-/**
- * Deterministic post-OCR text reconcile (RHEV-inspired: model/OCR output ≠ final fields).
- * Fixes common Tesseract label garble before evidence-gated parsers run.
- * Does not invent amounts — only normalizes labels so evidence matchers can fire.
- */
-export function reconcileReceiptOcrText(text: string): string {
-  return text
-    .split(/\r?\n/)
-    .map((line) => {
-      let l = line;
-      // Amount-paid / balance / grand-total OCR near-misses (keep the money tokens).
-      l = l.replace(/\bamount\s*pa[ilt]d\b/gi, 'AMOUNT paid');
-      l = l.replace(/\bam+ou?nt\s*pa[ilt]d\b/gi, 'amount paid');
-      l = l.replace(/\bbal+a?nce\s*due\b/gi, 'balance due');
-      l = l.replace(/\bba[\s-]*l[\s-]*a?n[\s-]*c[\s-]*e\b/gi, 'balance');
-      l = l.replace(/\bgran[d0]\s*tot(?:al|ai|a1)\b/gi, 'grand total');
-      l = l.replace(/\bfinal\s*tot(?:al|ai|a1)\b/gi, 'final total');
-      l = l.replace(/\btot(?:al|ai|a1)\s*due\b/gi, 'total due');
-      // Bare TOTAL OCR: TOTAI / T0TAL / Hoa (rare) left alone unless clearly TOTAL*
-      l = l.replace(/\bt0tal\b/gi, 'total');
-      l = l.replace(/\btotai\b/gi, 'total');
-      l = l.replace(/\btota1\b/gi, 'total');
-      return l;
-    })
-    .join('\n');
-}
 
 export type FieldHints = {
   merchant?: string;
@@ -110,88 +86,6 @@ export function parseDateFromText(text: string): string | null {
   }
   const ranked = [...candidates].sort((a, b) => b[1] - a[1]);
   return ranked[0] && ranked[0][1] !== ranked[1]?.[1] ? ranked[0][0] : null;
-}
-
-/**
- * Extract final amount paid from labeled evidence only.
- * No largest-number fallback — unlabeled or conflicting totals stay blank.
- *
- * Priority (higher wins). Word boundaries avoid matching SUBTOTAL as TOTAL.
- * Position (later lines) breaks ties among equal-priority labels that agree.
- */
-const AMOUNT_LABELS: { re: RegExp; priority: number; kind: string }[] = [
-  { re: /\bamount\s*paid\b/i, priority: 100, kind: 'amount_paid' },
-  { re: /\bbalance\s*due\b/i, priority: 95, kind: 'balance_due' },
-  { re: /\bamount\s*due\b/i, priority: 90, kind: 'amount_due' },
-  { re: /\bgrand\s*total\b/i, priority: 85, kind: 'grand_total' },
-  { re: /\bfinal\s*total\b/i, priority: 85, kind: 'final_total' },
-  { re: /\btotal\s*due\b/i, priority: 85, kind: 'total_due' },
-  // Bare TOTAL — SUBTOTAL lines are excluded by NON_TOTAL_LINE before matching.
-  { re: /\btotal\b(?!\s*(?:tax|items?|qty|quantity|savings?))/i, priority: 70, kind: 'total' },
-  { re: /\bbalance\b(?!\s*(?:forward|bf|brought))/i, priority: 65, kind: 'balance' },
-  { re: /\b(?:visa|mastercard|amex|discover|debit|credit)\b(?!.*\b(?:ending|xxxx|\*\*))/i, priority: 55, kind: 'tender' },
-];
-
-const NON_TOTAL_LINE =
-  /\b(?:sub\s*total|subtotal|tax|tip|gratuity|discount|coupon|you\s*saved|savings?|change|cash\s*back|deposit|refund|credit\s*applied|items?\s*total|qty|quantity)\b/i;
-
-const MONEY_ON_LINE = /(?:USD\s*)?\$?\s*(\d{1,6}(?:[.,]\d{2}))\b/gi;
-
-function moneyValuesOnLine(line: string): number[] {
-  const out: number[] = [];
-  MONEY_ON_LINE.lastIndex = 0;
-  let m: RegExpExecArray | null;
-  while ((m = MONEY_ON_LINE.exec(line))) {
-    const n = Number(m[1].replace(',', '.'));
-    if (Number.isFinite(n) && n > 0) out.push(n);
-  }
-  return out;
-}
-
-export function parseTotalFromText(text: string): { total: number | null; currency: string } {
-  const lines = reconcileReceiptOcrText(text).split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-  type Hit = { value: number; priority: number; kind: string; lineIndex: number };
-  const hits: Hit[] = [];
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (NON_TOTAL_LINE.test(line)) continue;
-    const values = moneyValuesOnLine(line);
-    if (!values.length) continue;
-    for (const label of AMOUNT_LABELS) {
-      if (!label.re.test(line)) continue;
-      // Prefer the rightmost money on a labeled total line (amount column).
-      const value = values[values.length - 1];
-      hits.push({ value, priority: label.priority, kind: label.kind, lineIndex: i });
-      break;
-    }
-  }
-
-  if (!hits.length) {
-    // No labeled final-amount evidence — leave blank (never invent from largest number).
-    return { total: null, currency: 'USD' };
-  }
-
-  hits.sort((a, b) => b.priority - a.priority || b.lineIndex - a.lineIndex);
-  const topPriority = hits[0].priority;
-  const top = hits.filter((h) => h.priority === topPriority);
-  const topValues = [...new Set(top.map((h) => h.value))];
-  if (topValues.length !== 1) {
-    // Same-priority labels disagree.
-    return { total: null, currency: 'USD' };
-  }
-
-  const finalish = hits.filter((h) => h.priority >= 65);
-  const finalishValues = [...new Set(finalish.map((h) => h.value))];
-  if (finalishValues.length > 1) {
-    // Conflicting TOTAL / GRAND TOTAL / AMOUNT DUE style labels.
-    // Only an explicit amount-paid / balance-due (priority >= 95) may override.
-    if (topPriority < 95) {
-      return { total: null, currency: 'USD' };
-    }
-  }
-
-  return { total: topValues[0], currency: 'USD' };
 }
 
 function normalizeMerchantLine(raw: string): string {

@@ -11,6 +11,97 @@ import { RULE_PACK } from './rules/us-common-2026';
 
 export { RULE_PACK };
 
+export type PurchaseItem = { name: string };
+
+const PHARMACY_MERCHANT = /\b(?:pharmacy|cvs|walgreens|rite aid)\b/i;
+const SNACK_ITEM =
+  /\b(?:candy|candies|chocolate|snack|snacks|chips|chip|soda|coke|pepsi|gum|gummies|gummy|cookie|cookies|snickers|skittles|m&ms?|doritos|cheetos|twix|reeses|reese's)\b/i;
+const MEDICAL_ITEM =
+  /\b(?:prescriptions?|rx|copays?|co-pays?|medications?|medicines?|bandages?|inhalers?|insulin|antibiotics?|ointments?|syringes?)\b/i;
+
+type PurchaseKind = 'unknown' | 'snacks' | 'mixed' | 'medical_items';
+
+function itemSignals(name: string): { snack: boolean; medical: boolean } {
+  return { snack: SNACK_ITEM.test(name), medical: MEDICAL_ITEM.test(name) };
+}
+
+/** Merchant names do not decide this. Only receipt lines and the user's own words do. */
+function classifyPurchase(
+  merchant: string,
+  items: PurchaseItem[] | undefined,
+  notes: string,
+): {
+  kind: PurchaseKind;
+  category: string;
+  label: string;
+  reason: string;
+  question: string;
+  missing: string;
+} | null {
+  if (!PHARMACY_MERCHANT.test(normalize(merchant))) return null;
+  const names = (items || []).map((item) => item.name.trim()).filter(Boolean);
+  const note = notes.trim();
+  const pieces = note ? [...names, note] : names;
+  const ask = {
+    kind: 'unknown' as const,
+    category: 'Other',
+    label: 'Needs a little context',
+    reason: 'The store name does not show what was purchased.',
+    question: 'What was purchased?',
+    missing: 'purchase_items',
+  };
+  if (!pieces.length) return ask;
+
+  const tagged = pieces.map((name) => ({ name, ...itemSignals(name) }));
+  const snacks = tagged.filter((item) => item.snack);
+  const medical = tagged.filter((item) => item.medical);
+  const unknown = tagged.filter((item) => !item.snack && !item.medical);
+  if ((medical.length && (snacks.length || unknown.length)) || (snacks.length && unknown.length)) {
+    const described = tagged
+      .map((item) => {
+        const detail =
+          item.snack && item.medical
+            ? 'snack and another item'
+            : item.snack
+              ? 'snack'
+              : item.medical
+                ? 'separate item'
+                : 'not identified';
+        return `${item.name} (${detail})`;
+      })
+      .join('; ');
+    return {
+      kind: 'mixed',
+      category: 'Other',
+      label: 'Needs a little context',
+      reason: `These are separate purchases: ${described}. The whole receipt is not a medical purchase.`,
+      question: 'Which items were medical, if any?',
+      missing: 'mixed_purchase_items',
+    };
+  }
+  if (snacks.length) {
+    return {
+      kind: 'snacks',
+      category: 'Other',
+      label: 'Needs a little context',
+      reason: 'The receipt items are candy or snacks.',
+      question: 'Was this a personal snack, or something else?',
+      missing: 'snack_or_other',
+    };
+  }
+  if (medical.length) {
+    return {
+      kind: 'medical_items',
+      category: 'Medical',
+      label: '',
+      reason: '',
+      question: '',
+      missing: '',
+    };
+  }
+  return ask;
+}
+
 function base(partial: Omit<Suggestion, 'ruleId' | 'ruleVersion' | 'sourceCitation'>): Suggestion {
   return {
     ...partial,
@@ -25,12 +116,21 @@ function base(partial: Omit<Suggestion, 'ruleId' | 'ruleVersion' | 'sourceCitati
  * Returns structured customer-facing states; never equates business use with tax savings.
  */
 export function suggestWriteOff(
-  r: Pick<ExpenseRecord, 'merchant' | 'category' | 'type' | 'notes' | 'reviewed' | 'treatmentSource' | 'percent' | 'eligibilityChecked'>,
+  r: Pick<ExpenseRecord, 'merchant' | 'category' | 'type' | 'notes' | 'reviewed' | 'treatmentSource' | 'percent' | 'eligibilityChecked'> & {
+    items?: PurchaseItem[];
+    /** The person chose this category. A merchant match or saved preference did not. */
+    categoryExplicit?: boolean;
+  },
   profile: Partial<Profile> = {},
   rules: MerchantRule[] = [],
 ): Suggestion {
   const rule = rules.find((x) => x.merchant === normalize(r.merchant));
-  const category = rule?.category || r.category || categoryFor(r.merchant);
+  const explicit =
+    r.categoryExplicit === true ||
+    ((r.treatmentSource === 'user' || r.treatmentSource === 'tax_pro') && Boolean(r.category));
+  const purchase = classifyPurchase(r.merchant, r.items, r.notes || '');
+  const category = explicit ? r.category : purchase?.category || categoryFor(r.merchant);
+  const neutralChoice = !explicit || !r.category || r.category === 'Other';
   const context =
     profile.industry === 'creative'
       ? 'creative work'
@@ -45,7 +145,7 @@ export function suggestWriteOff(
   // User already recorded an explicit treatment
   if (r.treatmentSource === 'user' && r.reviewed) {
     return base({
-      category,
+      category: r.category || category,
       use: r.type,
       label: 'User-entered treatment',
       reason:
@@ -61,7 +161,7 @@ export function suggestWriteOff(
 
   if (r.treatmentSource === 'tax_pro' && r.reviewed) {
     return base({
-      category,
+      category: r.category || category,
       use: r.type,
       label: 'Reviewed with a tax professional',
       reason:
@@ -98,6 +198,24 @@ export function suggestWriteOff(
       status: 'transfer_check',
       suggestedEligiblePercent: null,
       missing: 'transfer_or_purchase',
+    });
+  }
+
+  if (purchase && purchase.kind !== 'medical_items' && neutralChoice) {
+    const preference = rule
+      ? ' A saved preference for this merchant does not set tax eligibility for this purchase.'
+      : '';
+    return base({
+      category: purchase.category,
+      use: 'Unsorted',
+      label: purchase.label,
+      reason: `${purchase.reason}${preference}`,
+      question: purchase.question,
+      share: 0,
+      remembered: false,
+      status: 'needs_detail',
+      suggestedEligiblePercent: null,
+      missing: purchase.missing,
     });
   }
 
@@ -210,16 +328,22 @@ export function suggestWriteOff(
     question = 'Was this purchase for your business, personal use, or both?';
   }
 
-  if (rule && category !== 'Transfers & payments') {
+  if (rule && purchase?.kind === 'medical_items') {
+    suggestedEligiblePercent = null;
+    reason = `${reason} A saved preference for this merchant does not set tax eligibility for this purchase.`;
+  } else if (rule && !explicit && category !== 'Transfers & payments') {
     use = rule.type;
     share = rule.share || (rule.type === 'Business' ? 100 : rule.type === 'Split' ? 50 : 0);
     label = 'From your saved preference';
-    status = rule.type === 'Personal' ? 'no_writeoff_identified' : 'possible_writeoff';
-    reason = `You previously chose ${rule.type.toLowerCase()} for this merchant. ${
-      rule.type === 'Split' ? `Suggested business share: ${rule.share}%. ` : ''
-    }Check this purchase too; use can change.`;
-    missing = null;
-    question = '';
+    if (status !== 'possible_writeoff') {
+      status = rule.type === 'Personal' ? 'no_writeoff_identified' : status;
+    }
+    suggestedEligiblePercent = null;
+    reason = `You previously chose ${rule.type.toLowerCase()} for this merchant. That preference does not set tax eligibility for this purchase.`;
+    if (status !== 'needs_detail') {
+      missing = null;
+      question = '';
+    }
   }
 
   return base({
@@ -238,7 +362,10 @@ export function suggestWriteOff(
 
 /** Thin alias for call sites — fills missing fields for suggestion. */
 export function suggest(
-  r: Partial<ExpenseRecord> & Pick<ExpenseRecord, 'merchant'>,
+  r: Partial<ExpenseRecord> & Pick<ExpenseRecord, 'merchant'> & {
+    items?: PurchaseItem[];
+    categoryExplicit?: boolean;
+  },
   profile: Partial<Profile> = {},
   rules: MerchantRule[] = [],
 ): Suggestion {
@@ -252,6 +379,8 @@ export function suggest(
       treatmentSource: r.treatmentSource || 'suggestion',
       percent: r.percent || 0,
       eligibilityChecked: !!r.eligibilityChecked,
+      items: r.items,
+      categoryExplicit: r.categoryExplicit,
     },
     profile,
     rules,

@@ -30,8 +30,7 @@ echo "Target project ref: $REF"
 if [[ "${1:-}" == "--push" ]]; then
   npx supabase link --project-ref "$REF"
   npx supabase db push
-  npx supabase functions deploy extract-receipt --project-ref "$REF"
-  echo "Set secrets: npx supabase secrets set OCR_PROVIDER=mindee MINDEE_API_KEY=… --project-ref $REF"
+  echo "Migrations pushed. Receipt reading stays on the private preview. Do not deploy a second OCR function."
 else
-  echo "Dry run only. Pass --push to link/db push/deploy (requires CLI auth)."
+  echo "Dry run only. Pass --push to link and db push (requires CLI auth)."
 fi

@@ -32,6 +32,7 @@ Also mirrored under `/cursor/stores/bc-7967a11b-7ff7-4ed3-91a2-8c7564cbede4/medi
 | Snap a receipt button | Consolidated / kit receipt-first requirement |
 | Stats “Possible write-offs” / “Eligible % you set” | Distinguish totals vs possible vs eligible |
 | OCR / bank pending copy | No fake success |
+| Setup subscription panel and deletion sentence | Purchases and account deletion need truthful states. Uses the existing panel, helper text, and pending badge |
 
 ## Phase B demo shots (local preview)
 Parent store: `/cursor/stores/bc-7967a11b-7ff7-4ed3-91a2-8c7564cbede4/media/phase-b/`

@@ -373,6 +373,46 @@ export async function deleteMerchantRule(userId: string, ruleId: string): Promis
   if (error) throw error;
 }
 
+function missingRelation(error: { code?: string; message?: string } | null): boolean {
+  if (!error) return false;
+  return error.code === '42P01' || error.code === 'PGRST205' || /schema cache|does not exist|Could not find/i.test(error.message || '');
+}
+
+async function deleteOwnRows(
+  sb: NonNullable<ReturnType<typeof getSupabase>>,
+  table: string,
+  userId: string,
+  optional: boolean,
+): Promise<void> {
+  const { error } = await sb.from(table).delete().eq('user_id', userId);
+  if (error && optional && missingRelation(error)) return;
+  if (error) throw error;
+}
+
+/** Deletes this customer's rows. Browser storage is the caller's job, and only after this resolves. */
+export async function deleteOwnedCloudAccount(userId: string): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) throw new Error('Supabase is not configured.');
+  if (!userId) throw new Error('Account deletion needs the signed-in customer.');
+
+  await deleteOwnRows(sb, 'bank_items', userId, true);
+
+  const { data, error } = await sb.from('receipts').select('storage_path').eq('user_id', userId);
+  if (error) throw error;
+  const paths = (data || []).map((row: { storage_path: string }) => row.storage_path).filter(Boolean);
+  if (paths.length) {
+    const removed = await sb.storage.from('receipts').remove(paths);
+    if (removed.error) throw removed.error;
+  }
+
+  for (const table of ['receipts', 'expenses', 'merchant_rules'] as const) {
+    await deleteOwnRows(sb, table, userId, false);
+  }
+  await deleteOwnRows(sb, 'entitlement_events', userId, true);
+  await deleteOwnRows(sb, 'entitlements', userId, true);
+  await deleteOwnRows(sb, 'profiles', userId, false);
+}
+
 export async function importExpenses(userId: string, records: ExpenseRecord[]): Promise<number> {
   let saved = 0;
   for (const r of records) {

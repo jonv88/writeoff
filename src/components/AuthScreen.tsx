@@ -10,6 +10,68 @@ import {
 
 type Mode = 'sign-in' | 'sign-up' | 'reset';
 
+export function RecoveryPanel() {
+  const { updatePassword, error, clearError } = useAuth();
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    clearError();
+    setBusy(true);
+    try {
+      await updatePassword(password);
+      setDone(true);
+    } catch {
+      /* surfaced via auth.error */
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="auth-shell">
+      <aside className="auth-panel">
+        <div className="brand">
+          <span className="mark">w</span>
+          writeoff<span style={{ color: '#a4b984' }}>.</span>
+        </div>
+        <div className="kicker">PASSWORD RECOVERY</div>
+        <h1>Choose a new password.</h1>
+        <p>This replaces the password for your Writeoff account. It does not delete expenses or receipts.</p>
+        {done ? (
+          <div className="notice">Password updated. You can continue in this signed-in account.</div>
+        ) : (
+          <form onSubmit={onSubmit} style={{ marginTop: 24 }}>
+            <label>
+              New password
+              <input
+                type="password"
+                required
+                minLength={8}
+                autoComplete="new-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </label>
+            {error && (
+              <div className="formerror" role="alert">
+                {error}
+              </div>
+            )}
+            <div className="dialogactions" style={{ justifyContent: 'flex-start' }}>
+              <button className="btn" type="submit" disabled={busy}>
+                {busy ? 'Working…' : 'Update password'}
+              </button>
+            </div>
+          </form>
+        )}
+      </aside>
+    </div>
+  );
+}
+
 export function AuthScreen({ onLocalPreview }: { onLocalPreview?: () => void }) {
   const { configured, signIn, signUp, resetPassword, error, clearError } = useAuth();
   const [mode, setMode] = useState<Mode>('sign-in');

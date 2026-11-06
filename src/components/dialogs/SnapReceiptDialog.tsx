@@ -1,14 +1,19 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { categoryFor, uid } from '../../lib/core';
+import { uid } from '../../lib/core';
 import { extractReceipt } from '../../lib/ocr/adapter';
 import { formatOcrAmount } from '../../lib/ocr/browserOcr';
+import { mergeReceiptReading } from '../../lib/ocr/receiptEvidence';
+import { ReceiptScanSession } from '../../lib/ocr/receiptScanSession';
+import { requestServerExtraction } from '../../lib/ocr/serverExtraction';
 import {
-  LIVE_VERYFI_BLOCK_REASON,
-  LIVE_VERYFI_CALLS_ENABLED,
-  applyMockFallback,
-  type FieldSnapshot,
-  type MockCaseId,
-} from '../../lib/ocr/veryfiMockFallback';
+  clearReceiptDraft,
+  clearReceiptPhoto,
+  loadReceiptDraft,
+  loadReceiptPhoto,
+  saveReceiptDraft,
+  saveReceiptPhoto,
+  type ReceiptDraft,
+} from '../../lib/receiptDraft';
 import { suggestWriteOff } from '../../lib/writeoffEngine';
 import { emptyExpense } from '../../lib/types';
 import { useWorkspace } from '../../context/WorkspaceContext';
@@ -64,23 +69,19 @@ export function SnapReceiptDialog({
     amount: false,
     date: false,
   });
-  const tesseractSnap = useRef<FieldSnapshot>({
-    merchant: '',
-    date: '',
-    amount: '',
-    uncertain: ['merchant', 'date', 'total'],
-  });
-
+  const scanSession = useRef(new ReceiptScanSession());
   const [phase, setPhase] = useState<Phase>('pick');
   const [pipeline, setPipeline] = useState<PipelineState>('idle');
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [statusMsg, setStatusMsg] = useState('');
+  const [providerLine, setProviderLine] = useState('');
   const [merchant, setMerchant] = useState('');
   const [amount, setAmount] = useState('');
   const [date, setDate] = useState('');
   const [currency, setCurrency] = useState('USD');
   const [notes, setNotes] = useState('');
+  const [purchaseItems, setPurchaseItems] = useState<{ name: string }[]>([]);
   const [uncertain, setUncertain] = useState<string[]>([]);
   const [fieldHints, setFieldHints] = useState<{
     merchant?: string;
@@ -97,10 +98,12 @@ export function SnapReceiptDialog({
   >('none');
   const [extractionVersion, setExtractionVersion] = useState('');
   const [captureHint, setCaptureHint] = useState('');
-  const [mockNote, setMockNote] = useState('');
   const [session, setSession] = useState<MockSession>(() => readSession());
+  const [draftOffer, setDraftOffer] = useState<ReceiptDraft | null>(null);
+  const draftSaved = useRef(false);
 
   useEffect(() => {
+    scanSession.current.invalidate();
     const el = ref.current;
     if (!el) return;
     if (open && !el.open) {
@@ -123,9 +126,9 @@ export function SnapReceiptDialog({
       setExtractionStatus('none');
       setExtractionVersion('');
       setCaptureHint('');
-      setMockNote('');
       userTouched.current = { merchant: false, amount: false, date: false };
-      tesseractSnap.current = { merchant: '', date: '', amount: '', uncertain: ['merchant', 'date', 'total'] };
+      draftSaved.current = false;
+      setDraftOffer(loadReceiptDraft());
       if (cameraInputRef.current) cameraInputRef.current.value = '';
       if (fileInputRef.current) fileInputRef.current.value = '';
       el.showModal();
@@ -139,6 +142,23 @@ export function SnapReceiptDialog({
       if (previewUrl) URL.revokeObjectURL(previewUrl);
     };
   }, [previewUrl]);
+
+  useEffect(() => () => scanSession.current.invalidate(), []);
+
+  useEffect(() => {
+    if (!open || phase !== 'review' || draftSaved.current) return;
+    if (!merchant && !amount && !date) return;
+    const draft = {
+      merchant,
+      amount,
+      date,
+      currency,
+      notes,
+      updatedAt: new Date().toISOString(),
+    };
+    saveReceiptDraft(draft);
+    if (file) void saveReceiptPhoto(file, { name: file.name, type: file.type });
+  }, [open, phase, merchant, amount, date, currency, notes, file]);
 
   function markTouched(key: FieldKey) {
     userTouched.current[key] = true;
@@ -176,20 +196,12 @@ export function SnapReceiptDialog({
     if (!userTouched.current.amount && result.total == null && !uncertainNext.includes('total')) {
       uncertainNext.push('total');
     }
-    const uniqueUncertain = [...new Set(uncertainNext)];
-    const nextMerchant = userTouched.current.merchant ? merchant : result.merchant?.trim() || '';
-    const nextDate = userTouched.current.date ? date : result.date || '';
-    const nextAmount = userTouched.current.amount
-      ? amount
-      : result.total != null
-        ? formatOcrAmount(result.total)
-        : '';
-    tesseractSnap.current = {
-      merchant: nextMerchant,
-      date: nextDate,
-      amount: nextAmount,
-      uncertain: uniqueUncertain,
-    };
+    const uniqueUncertain = [...new Set(uncertainNext)].filter((field) => {
+      if (field === 'merchant' && userTouched.current.merchant) return false;
+      if (field === 'date' && userTouched.current.date) return false;
+      if (field === 'total' && userTouched.current.amount) return false;
+      return true;
+    });
     setUncertain(uniqueUncertain);
     setFieldHints({
       merchant:
@@ -210,7 +222,6 @@ export function SnapReceiptDialog({
       setPipeline('needs_manual');
     }
     setStatusMsg(result.message || 'Review the details before saving.');
-    setMockNote('');
   }
 
   function bumpSession(patch: (prev: MockSession) => MockSession) {
@@ -221,31 +232,21 @@ export function SnapReceiptDialog({
     });
   }
 
-  function applyMockCase(id: MockCaseId) {
-    if (LIVE_VERYFI_CALLS_ENABLED) {
-      setError(LIVE_VERYFI_BLOCK_REASON);
-      return;
-    }
-    const result = applyMockFallback({
-      id,
-      tesseract: tesseractSnap.current,
-      current: { merchant, date, amount },
-      userEdited: { ...userTouched.current },
-    });
-    setMerchant(result.merchant);
-    setDate(result.date);
-    setAmount(result.amount);
-    setUncertain(result.uncertain);
-    setFieldHints(result.fieldHints);
-    setStatusMsg(result.message);
-    setMockNote(result.label);
-    setPipeline(result.leftForReview.length ? 'needs_manual' : 'details_filled');
-    setError('');
-  }
-
   async function acceptFile(f: File | undefined, source: 'camera' | 'file') {
     if (!f) return;
+    const scanId = scanSession.current.begin();
+    userTouched.current = { merchant: false, amount: false, date: false };
+    setMerchant('');
+    setAmount('');
+    setDate('');
+    setCurrency('USD');
+    setPurchaseItems([]);
+    setUncertain([]);
+    setFieldHints({});
+    setMatchId('');
+    setServerStoragePath(null);
     setError('');
+    setProviderLine('');
     setCaptureHint(
       source === 'camera'
         ? 'Take photo uses the device camera when the browser supports it (capture=environment). On many desktops the system file picker opens instead.'
@@ -261,25 +262,57 @@ export function SnapReceiptDialog({
     setPipeline('photo_attached');
     setStatusMsg('Photo attached');
     setFile(f);
-    setMockNote('');
 
     const draftId = uid();
     setPipeline('reading');
     setStatusMsg('Reading receipt…');
 
-    const bundle = await extractReceipt(f, {
-      expenseId: draftId,
-      preferBrowser: true,
-      onProgress: (msg) => {
-        if (/^Photo attached/i.test(msg)) {
-          setPipeline('photo_attached');
-        } else if (/Reading receipt/i.test(msg) || /Loading on-device|preparing/i.test(msg)) {
-          setPipeline('reading');
-        }
-        setStatusMsg(msg);
-      },
-    });
+    let bundle: Awaited<ReturnType<typeof extractReceipt>>;
+    try {
+      bundle = await extractReceipt(f, {
+        expenseId: draftId,
+        preferBrowser: true,
+        onProgress: (msg) => {
+          if (!scanSession.current.isCurrent(scanId)) return;
+          if (/^Photo attached/i.test(msg)) {
+            setPipeline('photo_attached');
+          } else if (/Reading receipt/i.test(msg) || /Loading on-device|preparing/i.test(msg)) {
+            setPipeline('reading');
+          }
+          setStatusMsg(msg);
+        },
+      });
+    } catch {
+      if (!scanSession.current.isCurrent(scanId)) return;
+      const remote = await requestServerExtraction(f);
+      if (!scanSession.current.isCurrent(scanId)) return;
+      setFile(f);
+      if (remote.ok) {
+        setOcrProvider(remote.reading.provider);
+        setExtractionVersion(remote.reading.version);
+        setExtractionStatus(remote.reading.status);
+        setProviderLine(remote.reused ? 'Veryfi already processed this photo.' : 'Veryfi processed this photo.');
+        setPurchaseItems(remote.reading.items || []);
+        applyOcrToForm(remote.reading);
+        setPhase('review');
+        setPipeline(remote.reading.uncertainFields.length ? 'needs_manual' : 'details_filled');
+        bumpSession((prev) => ({ ...prev, snaps: prev.snaps + 1, reviews: prev.reviews + 1 }));
+        return;
+      }
+      setPhase('review');
+      setPipeline('needs_manual');
+      setExtractionStatus('failed');
+      setProviderLine('Veryfi did not process this photo.');
+      setUncertain(['merchant', 'date', 'total']);
+      setError(remote.message);
+      setStatusMsg(remote.message);
+      return;
+    }
 
+    if (!scanSession.current.isCurrent(scanId)) {
+      if (bundle.previewUrl) URL.revokeObjectURL(bundle.previewUrl);
+      return;
+    }
     const { extraction: result, attachFile, previewUrl: nextPreview } = bundle;
 
     setPreviewUrl((prev) => {
@@ -289,7 +322,7 @@ export function SnapReceiptDialog({
       return null;
     });
 
-    // Keep receipt attached even when OCR fails / needs manual entry
+    // Keep receipt attached even when OCR fails / needs manual entry.
     setFile(attachFile || f);
     setOcrProvider(result.provider || null);
     setExtractionVersion(result.version || '');
@@ -302,29 +335,51 @@ export function SnapReceiptDialog({
         ? result.status
         : 'needs_details',
     );
-
     applyOcrToForm(result);
     setPhase('review');
+    setProviderLine('Checking whether Veryfi processed this photo.');
+    setStatusMsg('Read on this device. Waiting for the receipt service.');
     bumpSession((prev) => ({ ...prev, snaps: prev.snaps + 1, reviews: prev.reviews + 1 }));
 
-    if (result.merchant && result.date && result.total != null) {
+    const remote = await requestServerExtraction(attachFile || f);
+    if (!scanSession.current.isCurrent(scanId)) return;
+    const merged = mergeReceiptReading({
+      local: result,
+      remote: remote.ok ? remote.reading : null,
+      remoteError: remote.ok ? undefined : remote.message,
+    });
+    setOcrProvider(merged.provider || null);
+    setExtractionVersion(merged.version || '');
+    setExtractionStatus(merged.status);
+    setProviderLine(
+      remote.processed
+        ? remote.reused
+          ? 'Veryfi already processed this photo.'
+          : 'Veryfi processed this photo.'
+        : 'Veryfi did not process this photo.',
+    );
+    if (!remote.ok) setError('');
+    setPurchaseItems(merged.items || []);
+    applyOcrToForm(merged);
+
+    if (merged.merchant && merged.date && merged.total != null) {
       const hit = records.find(
         (r) =>
-          r.merchant.toLowerCase() === result.merchant!.toLowerCase() &&
-          r.date === result.date &&
-          Math.abs(r.amount - result.total!) < 0.005,
+          r.merchant.toLowerCase() === merged.merchant!.toLowerCase() &&
+          r.date === merged.date &&
+          Math.abs(r.amount - merged.total!) < 0.005,
       );
       if (hit) setMatchId(hit.id);
     }
   }
 
-  const draftCategory = categoryFor(merchant);
   const suggestion = suggestWriteOff(
     {
       merchant,
-      category: draftCategory,
+      category: '',
       type: 'Unsorted',
       notes,
+      items: purchaseItems,
       reviewed: false,
       treatmentSource: 'suggestion',
       percent: 0,
@@ -377,6 +432,10 @@ export function SnapReceiptDialog({
           },
           serverStoragePath ? null : file,
         );
+        draftSaved.current = true;
+        clearReceiptDraft();
+        void clearReceiptPhoto();
+        setDraftOffer(null);
         showToast('Receipt attached to the matching expense.');
         const typed =
           userTouched.current.merchant || userTouched.current.date || userTouched.current.amount;
@@ -397,7 +456,7 @@ export function SnapReceiptDialog({
         date,
         category: suggestion.category,
         type: 'Unsorted',
-        notes: notes.trim(),
+        notes: notes.trim() || purchaseItems.map((item) => item.name).join(', '),
         source: 'Receipt capture',
         treatmentSource: 'suggestion',
         // Eligible % is never set from OCR — stays 0 until the user reviews.
@@ -410,6 +469,10 @@ export function SnapReceiptDialog({
         receipt: receiptMeta,
       });
       await saveRecord(record, serverStoragePath ? null : file);
+      draftSaved.current = true;
+      clearReceiptDraft();
+      void clearReceiptPhoto();
+      setDraftOffer(null);
       const typed =
         userTouched.current.merchant || userTouched.current.date || userTouched.current.amount;
       bumpSession((prev) => ({
@@ -458,9 +521,8 @@ export function SnapReceiptDialog({
         <p>Photograph or choose a receipt. No bank connection required.</p>
         {browserMode && phase === 'pick' && (
           <div className="notice" style={{ marginBottom: 12 }}>
-            On-device scan — review merchant, date, and amount before saving. Live Veryfi is off.
-            After review, labeled mock buttons can fill a field only when redacted evidence supports
-            it. Your photo is not sent.
+            The photo is read on this device first. The review screen says whether Veryfi processed
+            it. Review merchant, date, and amount before saving. Nothing is saved until you confirm.
           </div>
         )}
         <p className="formhint">
@@ -469,6 +531,52 @@ export function SnapReceiptDialog({
           {session.reviews} reviewed · {session.savesWithoutTyping} saved without typing ·{' '}
           {session.fieldsLeftForReview} fields left for review.
         </p>
+
+        {phase === 'pick' && draftOffer && (
+          <div className="notice" style={{ marginBottom: 12 }}>
+            Unsaved receipt details are still in this browser. They are not saved as an expense,
+            and continuing does not send the photo again.
+            <div className="inlinebuttons" style={{ marginTop: 10 }}>
+              <button
+                type="button"
+                className="btn secondary"
+                onClick={() => {
+                  void (async () => {
+                    const photo = await loadReceiptPhoto();
+                    setMerchant(draftOffer.merchant);
+                    setAmount(draftOffer.amount);
+                    setDate(draftOffer.date);
+                    setCurrency(draftOffer.currency || 'USD');
+                    setNotes(draftOffer.notes);
+                    if (photo) {
+                      setFile(photo);
+                      setPreviewUrl((current) => {
+                        if (current) URL.revokeObjectURL(current);
+                        return URL.createObjectURL(photo);
+                      });
+                    }
+                    userTouched.current = { merchant: true, amount: true, date: true };
+                    setPhase('review');
+                    setDraftOffer(null);
+                  })();
+                }}
+              >
+                Continue details
+              </button>
+              <button
+                type="button"
+                className="btn secondary"
+                onClick={() => {
+                  clearReceiptDraft();
+                  void clearReceiptPhoto();
+                  setDraftOffer(null);
+                }}
+              >
+                Discard details
+              </button>
+            </div>
+          </div>
+        )}
 
         {phase === 'pick' && (
           <div className="importbox">
@@ -572,7 +680,8 @@ export function SnapReceiptDialog({
               </div>
             )}
             <div className={`notice ${uncertain.length ? 'warningnote' : ''}`}>
-              {statusMsg || 'Review the details before saving.'}
+              <strong>{providerLine || 'Veryfi did not process this photo.'}</strong>
+              <div>{statusMsg || 'Review the details before saving.'}</div>
             </div>
             {uncertain.length > 0 && (
               <p className="formhint">
@@ -589,26 +698,6 @@ export function SnapReceiptDialog({
               </p>
             )}
             {captureHint && <p className="formhint">{captureHint}</p>}
-            <div className="notice">
-              <strong>Mock Veryfi — live calls are off.</strong> These use redacted samples. The
-              receipt photo stays on this device and is not sent for processing. {LIVE_VERYFI_BLOCK_REASON}
-            </div>
-            {mockNote && (
-              <p className="formhint">
-                <strong>{mockNote}.</strong> This is a mock result, not a live Veryfi response.
-              </p>
-            )}
-            <div className="inlinebuttons">
-              <button type="button" className="btn secondary" onClick={() => applyMockCase('supported-total')}>
-                Mock: supported total
-              </button>
-              <button type="button" className="btn secondary" onClick={() => applyMockCase('conflicting-total')}>
-                Mock: conflicting totals
-              </button>
-              <button type="button" className="btn secondary" onClick={() => applyMockCase('ambiguous-date')}>
-                Mock: ambiguous date
-              </button>
-            </div>
             <div className="row">
               <label>
                 Merchant
@@ -690,11 +779,15 @@ export function SnapReceiptDialog({
             </label>
             <div className="suggestion">
               <strong>✧ {suggestion.label}</strong>
-              {suggestion.reason}
+              <div>{suggestion.reason}</div>
+              {suggestion.question ? <div>{suggestion.question}</div> : null}
               <div className="ruleline">
                 {suggestion.category} · {suggestion.ruleId} {suggestion.ruleVersion}
                 {' · '}Eligible % is set when you review — not from OCR
               </div>
+              {purchaseItems.length > 0 && (
+                <div className="helper">Items: {purchaseItems.map((item) => item.name).join(', ')}</div>
+              )}
             </div>
             {records.filter((r) => !r.receipt).length > 0 && (
               <label>
@@ -717,6 +810,7 @@ export function SnapReceiptDialog({
                 type="button"
                 className="btn secondary"
                 onClick={() => {
+                  scanSession.current.invalidate();
                   setPhase('pick');
                   setPipeline('idle');
                   setStatusMsg('');

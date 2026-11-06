@@ -9,6 +9,7 @@ import {
 import type { Session, User } from '@supabase/supabase-js';
 import { getSupabase } from '../lib/supabase';
 import { isSupabaseConfigured } from '../lib/config';
+import { isRecoveryCallback } from '../lib/auth/recovery';
 import { ensureProfile } from '../lib/data';
 
 interface AuthContextValue {
@@ -21,6 +22,8 @@ interface AuthContextValue {
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
+  updatePassword: (password: string) => Promise<void>;
+  recovery: boolean;
   clearError: () => void;
 }
 
@@ -31,6 +34,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(configured);
   const [session, setSession] = useState<Session | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [recovery, setRecovery] = useState(
+    () => typeof window !== 'undefined' && isRecoveryCallback(window.location.href),
+  );
 
   useEffect(() => {
     const sb = getSupabase();
@@ -46,7 +52,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setLoading(false);
     });
 
-    const { data: sub } = sb.auth.onAuthStateChange((_event, next) => {
+    const { data: sub } = sb.auth.onAuthStateChange((event, next) => {
+      if (event === 'PASSWORD_RECOVERY') setRecovery(true);
       setSession(next);
       if (next?.user) {
         void ensureProfile(next.user.id).catch(() => {
@@ -95,12 +102,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!sb) throw new Error('Supabase is not configured.');
     setError(null);
     const { error: err } = await sb.auth.resetPasswordForEmail(email, {
-      redirectTo: window.location.origin,
+      redirectTo: `${window.location.origin}/?type=recovery`,
     });
     if (err) {
       setError(err.message);
       throw err;
     }
+  }, []);
+
+  const updatePassword = useCallback(async (password: string) => {
+    const sb = getSupabase();
+    if (!sb) throw new Error('Supabase is not configured.');
+    setError(null);
+    const { error: err } = await sb.auth.updateUser({ password });
+    if (err) {
+      setError(err.message);
+      throw err;
+    }
+    setRecovery(false);
   }, []);
 
   const value: AuthContextValue = {
@@ -109,10 +128,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     session,
     user: session?.user ?? null,
     error,
+    recovery,
     signUp,
     signIn,
     signOut,
     resetPassword,
+    updatePassword,
     clearError: () => setError(null),
   };
 

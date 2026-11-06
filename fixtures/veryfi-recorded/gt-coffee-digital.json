@@ -1,0 +1,8 @@
+{
+  "note": "Recorded provider shape that disagrees with a reliable on-device total. Not a live Veryfi response.",
+  "vendor": { "name": "Demo Market", "raw_name": "Demo Market" },
+  "date": "2026-11-03",
+  "total": 18.4,
+  "currency_code": "USD",
+  "ocr_text": "Demo Market\nAMOUNT PAID 18.40\nNovember 3, 2026"
+}
