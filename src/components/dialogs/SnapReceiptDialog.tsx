@@ -357,7 +357,9 @@ export function SnapReceiptDialog({
         ? remote.reused
           ? 'Veryfi already processed this photo.'
           : 'Veryfi processed this photo.'
-        : 'On-device reading kept. The receipt service did not receive this photo.',
+        : remote.ok && remote.reading.mode === 'recorded'
+          ? 'Saved test reading applied. This photo was not sent to the live receipt service.'
+          : 'On-device reading kept. The receipt service did not receive this photo.',
     );
     if (!remote.ok) setError('');
     setPurchaseItems(merged.items || []);
