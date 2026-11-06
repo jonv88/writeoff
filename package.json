@@ -15,6 +15,7 @@
     "test:ocr-parse": "node scripts/test-browser-ocr-parse.mjs",
     "test:veryfi-mock": "node scripts/test-veryfi-mock-fallback.mjs",
     "test:receipt-evidence": "node scripts/test-receipt-evidence.mjs",
+    "test:veryfi-launch": "node scripts/test-veryfi-launch.mjs",
     "test:launch": "node scripts/test-launch-readiness.mjs",
     "test:isolation": "node scripts/test-rls-isolation.mjs",
     "test:receipt-isolation": "node scripts/test-receipt-scan-session.mjs",

@@ -16,6 +16,7 @@ import {
 } from '../../lib/receiptDraft';
 import { suggestWriteOff } from '../../lib/writeoffEngine';
 import { emptyExpense } from '../../lib/types';
+import { APPROVED_PLAN } from '../../lib/billing/plan';
 import { useWorkspace } from '../../context/WorkspaceContext';
 
 const SESSION_KEY = 'writeoff.mockVeryfiSession.v1';
@@ -302,7 +303,7 @@ export function SnapReceiptDialog({
       setPhase('review');
       setPipeline('needs_manual');
       setExtractionStatus('failed');
-      setProviderLine('Veryfi did not process this photo.');
+      setProviderLine('On-device reading kept. The receipt service did not receive this photo.');
       setUncertain(['merchant', 'date', 'total']);
       setError(remote.message);
       setStatusMsg(remote.message);
@@ -356,7 +357,7 @@ export function SnapReceiptDialog({
         ? remote.reused
           ? 'Veryfi already processed this photo.'
           : 'Veryfi processed this photo.'
-        : 'Veryfi did not process this photo.',
+        : 'On-device reading kept. The receipt service did not receive this photo.',
     );
     if (!remote.ok) setError('');
     setPurchaseItems(merged.items || []);
@@ -627,7 +628,11 @@ export function SnapReceiptDialog({
               <strong>Take photo</strong> asks for the rear camera when the browser supports it
               (iPhone Safari usually opens Camera). <strong>Choose file</strong> opens your library
               or files. JPEG/PNG preferred · large photos are resized for OCR. Cancel anytime —
-              nothing is saved until you confirm.
+              nothing is saved until you confirm. Reading starts on this device. A photo is sent
+              to the receipt service only when cloud reading is turned on for an active {APPROVED_PLAN.label} subscription.
+              Cloud reading is off, so this photo stays here for you to review and edit. The service
+              does not keep a copy, and the private copy in your account is removed when you delete
+              the expense or the account.
               {localPreview
                 ? ' The file and extracted fields stay in this browser only — they do not sync across devices.'
                 : ''}

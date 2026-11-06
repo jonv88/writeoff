@@ -8,6 +8,7 @@ import { resolveVeryfiDocument, type VeryfiDocumentShape } from '../lib/ocr/rece
 import { reserveDurableAttempt } from './attemptLedger.ts';
 import { persistFieldDiagnostic, sanitizeDiagnostic, shouldRetainTotalTrace, type FieldDiagnostic } from './fieldDiagnostics.ts';
 import { ownerCodeMatches } from './ownerAccess.ts';
+import { cloudScanRefusal, providerEnabled } from './veryfiPolicy.ts';
 import { processVeryfiDocument, toVeryfiDocument, VeryfiRequestError, type VeryfiCredentials } from './veryfiLive.ts';
 
 export const ALLOWED_PREVIEW_BRANCH = 'cursor/veryfi-live-scan-9e74';
@@ -24,6 +25,7 @@ export type ExtractEnv = {
   VERYFI_CLIENT_ID?: string;
   VERYFI_USERNAME?: string;
   VERYFI_API_KEY?: string;
+  VERYFI_PROVIDER?: string;
   PREVIEW_OWNER_CODE?: string;
 };
 
@@ -143,12 +145,18 @@ export async function handleExtractReceipt(
     allowedOrigins?: string[];
     reserveAttempt?: (cap: number) => Promise<boolean>;
     recordDiagnostic?: (entry: FieldDiagnostic) => Promise<void> | void;
+    resolveCustomer?: () => Promise<{ ownerId: string; entitled: boolean } | null>;
+    consumeAllowance?: (ownerId: string) => Promise<boolean>;
+    allowRequest?: (ownerId: string) => boolean;
   },
 ): Promise<Response> {
   const env = options?.env || {};
   if (env.VERCEL_ENV === 'production') return failure(404, 'Receipt reading is not available here.');
-  if (env.VERCEL_GIT_COMMIT_REF && env.VERCEL_GIT_COMMIT_REF !== ALLOWED_PREVIEW_BRANCH) {
-    return failure(404, 'Receipt reading is not available here.');
+  if (!options?.selectRecorded && env.VERCEL_GIT_COMMIT_REF && env.VERCEL_GIT_COMMIT_REF !== ALLOWED_PREVIEW_BRANCH) {
+    if (env.VERYFI_LIVE_CALLS === '1' || env.VERYFI_PROVIDER === 'enabled') {
+      return failure(404, 'Receipt reading is not available here.');
+    }
+    return failure(503, 'Live receipt reading is turned off.');
   }
   if (request.method !== 'POST') return failure(405, 'Send the receipt photo with the review form.');
   if (!sameOrigin(request, options?.allowedOrigins || [])) {
@@ -196,9 +204,21 @@ export async function handleExtractReceipt(
       document = toVeryfiDocument(recorded as unknown as Record<string, unknown>);
     } else if (env.VERYFI_LIVE_CALLS !== '1') {
       return failure(503, 'Live receipt reading is turned off.');
-    } else if (!options?.processDocument && !env.PREVIEW_OWNER_CODE) {
+    } else if (!options?.processDocument && !providerEnabled(env)) {
+      return failure(503, 'Live receipt reading is turned off.');
+    } else if (!options?.processDocument && !env.PREVIEW_OWNER_CODE && !options?.resolveCustomer) {
       return failure(503, 'Live receipt reading is turned off.');
     } else {
+      let scanOwner = '';
+      if (options?.resolveCustomer) {
+        const customer = await options.resolveCustomer();
+        if (!customer) return failure(401, 'Sign in from Writeoff to continue.');
+        if (!customer.entitled) return failure(402, cloudScanRefusal(false));
+        if (options.allowRequest && !options.allowRequest(customer.ownerId)) {
+          return failure(429, 'Too many receipt readings were requested. Review the photo on this device.');
+        }
+        scanOwner = customer.ownerId;
+      }
       const credentials: VeryfiCredentials = {
         clientId: env.VERYFI_CLIENT_ID || '',
         username: env.VERYFI_USERNAME || '',
@@ -229,6 +249,9 @@ export async function handleExtractReceipt(
         }
       }
       if (!reserved) return failure(429, 'This preview has reached its receipt reading limit.');
+      if (options?.consumeAllowance && !(await options.consumeAllowance(scanOwner))) {
+        return failure(429, cloudScanRefusal(true));
+      }
       pending.add(hash);
       mode = 'live';
       try {

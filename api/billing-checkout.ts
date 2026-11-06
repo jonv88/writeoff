@@ -23,6 +23,11 @@ export default async function handler(req: NodeRequest, res: NodeResponse): Prom
   let ownerId: string;
   try { ownerId = (await customerFromRequest(req, process.env)).ownerId; }
   catch { res.statusCode = 401; res.end(JSON.stringify({ error: 'Sign in from Writeoff to continue.' })); return; }
+  if (process.env.STRIPE_PRICE_INTERVAL && process.env.STRIPE_PRICE_INTERVAL !== 'month') {
+    res.statusCode = 403;
+    res.end(JSON.stringify({ error: 'Only the approved monthly price can be checked out.' }));
+    return;
+  }
   if (!secret || !priceId) {
     res.statusCode = 503;
     res.end(JSON.stringify({ error: 'Sandbox checkout is not configured.' }));

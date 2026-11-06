@@ -221,7 +221,9 @@ try {
   }
   assert.match(sql, /storage_path like auth\.uid\(\)::text/);
   assert.doesNotMatch(readFileSync('src/lib/billing/sandboxEntitlements.ts', 'utf8'), /\$\d|price|trial/i);
-  assert.match(readFileSync('src/screens/SetupScreen.tsx', 'utf8'), /Purchases aren’t available in this preview/);
+  assert.match(readFileSync('src/screens/SetupScreen.tsx', 'utf8'), /Purchases are not turned on in this preview/);
+  assert.match(readFileSync('src/lib/billing/plan.ts', 'utf8'), /amountCents: 999/);
+  assert.match(readFileSync('src/lib/billing/plan.ts', 'utf8'), /annualApproved: false/);
   assert.match(readFileSync('src/screens/AccountsScreen.tsx', 'utf8'), /Bank integration unavailable/);
   assert.doesNotMatch(readFileSync('src/lib/ocr/receiptTotals.ts', 'utf8'), /Walgreens|15\.97/);
 

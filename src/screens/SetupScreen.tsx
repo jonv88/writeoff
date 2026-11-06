@@ -7,6 +7,7 @@ import {
 } from '../lib/legacyMigration';
 import { importExpenses, saveMerchantRule, saveProfile } from '../lib/data';
 import { DELETION_RETENTION } from '../lib/account/deletion';
+import { APPROVED_PLAN } from '../lib/billing/plan';
 import { expensesToCsv } from '../lib/records/csvExport';
 import { uid } from '../lib/core';
 
@@ -221,9 +222,10 @@ export function SetupScreen({ onSetup }: { onSetup: () => void }) {
         <div className="panel">
           <h2>Subscription</h2>
           <p className="helper" style={{ margin: '12px 0' }}>
-            Purchases aren’t available in this preview. When a store product is configured, the
-            price and period come from the store. Canceling a subscription does not delete your
-            records or turn off export.
+            Writeoff Plus is {APPROVED_PLAN.label}. Annual billing is not offered.
+            Purchases are not turned on in this preview, and a subscription starts only after the
+            payment provider confirms it. Canceling a subscription does not delete your records or
+            turn off export. Cloud receipt reading is limited; it is not unlimited.
           </p>
           {checkout === 'return' && (
             <p className="helper">Checkout returned to Writeoff. Access changes only after the payment provider confirms the event.</p>
