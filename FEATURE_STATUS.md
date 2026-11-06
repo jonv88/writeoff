@@ -10,7 +10,7 @@ Legend: **Done** · **Partial** · **Blocked** · **Not started**
 | --- | --- | --- |
 | Template lock / five screens | Done | `npm run verify:template` |
 | Supabase migrations | Done (SQL) | Not applied in this environment. Includes sandbox bank and entitlement tables. |
-| Auth / hosted sync | Blocked | A new project on jonv88's Universe is $10/month. Rhev projects were not used. |
+| Auth / hosted sync | Blocked | Free plan allows two active projects. Both are in use. A third active project is $10/month and was not created. |
 | Two-customer RLS | Done (local Postgres) | Not applied to a hosted Writeoff project |
 | Capacitor iOS | Partial | Config only. This machine has no Xcode |
 
@@ -20,7 +20,7 @@ Legend: **Done** · **Partial** · **Blocked** · **Not started**
 | --- | --- | --- |
 | Suggestions, Business / Personal / Split, CSV | Done (client) | Eligible amount stays empty until the customer checks it |
 | Snap a receipt, local save/reload, photo draft | Done (browser) | Closing review keeps the photo privately and does not spend an OCR attempt |
-| Veryfi evidence totals | Done (recorded) | Physical iPhone retest still open. One live attempt reserved |
+| Veryfi evidence totals | Done | Physical iPhone confirmed merchant, date, and amount autofill. Save/reload on that phone was not confirmed. Ledger is 3 of 3. |
 | Diagnostics | Done (code) | `structuredTotal` and `reason` survive an eight-line evidence cap |
 | Pharmacy categorization | Done | Merchant name alone does not suggest medical |
 

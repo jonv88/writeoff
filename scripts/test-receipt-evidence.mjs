@@ -235,6 +235,21 @@ try {
   assert.equal(mapped.total, 17.6);
   assert.equal(mapped.layoutLines.length, 2);
   assert.equal(resolveVeryfiDocument(mapped).total, 17.6);
+  const withItems = toVeryfiDocument({
+    vendor: { name: 'Market Street' },
+    total: 15.97,
+    ocr_text: 'Market Street\nTOTAL 15.97',
+    line_items: [
+      { description: 'Skittles', price: 1.49, total: 1.49, text: 'Skittles 1.49', type: 'product' },
+      { description: '', full_description: 'Bandages 10 ct', price: 4.29, type: 'product' },
+      { description: 'Sales tax', price: 0.99, type: 'tax' },
+      { text: '2.50', price: 2.5, type: 'product' },
+    ],
+  });
+  assert.deepEqual(withItems.line_items.map((item) => item.description), ['Skittles', 'Bandages 10 ct']);
+  assert.equal(JSON.stringify(withItems.line_items).includes('1.49'), false);
+  assert.equal(resolveVeryfiDocument(withItems).total, 15.97);
+  assert.deepEqual(resolveVeryfiDocument(withItems).items, [{ name: 'Skittles' }, { name: 'Bandages 10 ct' }]);
 
   const dialog = readFileSync('src/components/dialogs/SnapReceiptDialog.tsx', 'utf8');
   const client = readFileSync('src/lib/ocr/serverExtraction.ts', 'utf8');

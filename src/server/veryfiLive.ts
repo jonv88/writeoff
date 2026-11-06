@@ -151,14 +151,32 @@ export function toVeryfiDocument(payload: Record<string, unknown>): VeryfiDocume
   };
 }
 
+const NON_ITEM_TYPE = /^(?:tax|tip|discount|payment|fee|subtotal|total|rounding|cash|change)$/i;
+
+/** Product words only. Price columns and tax/tender lines stay out. */
+function lineItemName(row: Record<string, unknown>): string | null {
+  const type = typeof row.type === 'string' ? row.type : '';
+  if (NON_ITEM_TYPE.test(type)) return null;
+  const fields = ['description', 'full_description', 'normalized_description', 'text'] as const;
+  for (const field of fields) {
+    const raw = row[field];
+    if (typeof raw !== 'string') continue;
+    const description = raw
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/\s+\$?\d+\.\d{2}\s*$/, '')
+      .trim();
+    if (description && !/^\d+(\.\d{2})?$/.test(description)) return description;
+  }
+  return null;
+}
+
 function lineItemDescriptions(payload: { line_items?: unknown }): { description: string }[] {
   if (!Array.isArray(payload.line_items)) return [];
   const names: { description: string }[] = [];
   for (const row of payload.line_items) {
     if (!row || typeof row !== 'object') continue;
-    const raw = (row as { description?: unknown; text?: unknown }).description ?? (row as { text?: unknown }).text;
-    if (typeof raw !== 'string') continue;
-    const description = raw.replace(/\s+/g, ' ').trim();
+    const description = lineItemName(row as Record<string, unknown>);
     if (!description) continue;
     names.push({ description });
     if (names.length >= 40) break;

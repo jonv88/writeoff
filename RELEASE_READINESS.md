@@ -4,7 +4,7 @@ Date: 2026-11-05, America/New_York. Branch `cursor/veryfi-live-scan-9e74`. This 
 
 ## Attempt counter
 
-Read from the private ledger without uploading a photo or calling Veryfi. Count is 2 of 3. One attempt remains and is reserved for a physical iPhone photo. Exiting a review does not change the counter.
+Read from the private ledger without uploading a photo or calling Veryfi. Count is 3 of 3. No attempts remain. The counter was not reset.
 
 ## What a customer can do
 
@@ -17,7 +17,7 @@ On the local preview, without a bank or a subscription:
 - Import a CSV, export a spreadsheet-safe CSV that separates the expense amount, business-use amount, and an eligible amount only when the customer checked it.
 - Reset the browser workspace. Signed-in deletion is implemented to run only after the server confirms, and it is separate from canceling a subscription.
 
-On the owner-protected private preview, Veryfi can fill a missing or uncertain field when the receipt text supports it. One document attempt remains and is reserved for a physical iPhone photo. Recorded responses are not live provider calls.
+On the owner-protected private preview, Veryfi can fill a missing or uncertain field when the receipt text supports it. A physical iPhone confirmed merchant, date, and amount autofill. Save and reload on that phone were not confirmed. No document attempts remain. Recorded responses are not live provider calls.
 
 A customer cannot yet create a cloud account, sync a phone with a desktop, buy a subscription, or install an iOS or Android build. Bank linking stays unavailable on purpose.
 
@@ -32,7 +32,7 @@ A customer cannot yet create a cloud account, sync a phone with a desktop, buy a
 
 - Hosted sign-up, email verification, password email, cloud save, or phone/desktop sync.
 - A browser Stripe checkout or a paid charge.
-- A physical iPhone scan.
+- Save and reload of the physical iPhone receipt. Merchant, date, and amount autofill were confirmed on that phone.
 
 ## Template
 
@@ -42,7 +42,7 @@ A customer cannot yet create a cloud account, sync a phone with a desktop, buy a
 
 | Area | State |
 | --- | --- |
-| Receipt amount rules, including a labeled total beside a generic balance | Verified with recorded responses and the review form. Physical iPhone not retested. |
+| Receipt amount rules, including a labeled total beside a generic balance | Verified with recorded responses and the review form. Physical iPhone confirmed merchant, date, and amount autofill. |
 | Field diagnostic | `structuredTotal` and `reason` are stored even when eight evidence lines fill the note. |
 | Bank ingestion rules | Tested in `src/lib/bank/sandboxLedger.ts`. No Plaid call. The Accounts screen stays unavailable. |
 | Entitlements | Tested reducer only. The Setup panel says purchases are unavailable. No store price is invented. |

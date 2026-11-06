@@ -8,7 +8,7 @@ import { resolveVeryfiDocument, type VeryfiDocumentShape } from '../lib/ocr/rece
 import { reserveDurableAttempt } from './attemptLedger.ts';
 import { persistFieldDiagnostic, sanitizeDiagnostic, shouldRetainTotalTrace, type FieldDiagnostic } from './fieldDiagnostics.ts';
 import { ownerCodeMatches } from './ownerAccess.ts';
-import { processVeryfiDocument, VeryfiRequestError, type VeryfiCredentials } from './veryfiLive.ts';
+import { processVeryfiDocument, toVeryfiDocument, VeryfiRequestError, type VeryfiCredentials } from './veryfiLive.ts';
 
 export const ALLOWED_PREVIEW_BRANCH = 'cursor/veryfi-live-scan-9e74';
 export const MAX_RECEIPT_UPLOAD_BYTES = 2_500_000;
@@ -193,7 +193,7 @@ export async function handleExtractReceipt(
       const fileName = request.headers.get('x-file-name') || '';
       const recorded = options.selectRecorded(fileName);
       if (!recorded) return failure(422, 'No receipt reading is available for this photo.');
-      document = recorded;
+      document = toVeryfiDocument(recorded as unknown as Record<string, unknown>);
     } else if (env.VERYFI_LIVE_CALLS !== '1') {
       return failure(503, 'Live receipt reading is turned off.');
     } else if (!options?.processDocument && !env.PREVIEW_OWNER_CODE) {

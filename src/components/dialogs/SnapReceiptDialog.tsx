@@ -785,6 +785,9 @@ export function SnapReceiptDialog({
                 {suggestion.category} · {suggestion.ruleId} {suggestion.ruleVersion}
                 {' · '}Eligible % is set when you review — not from OCR
               </div>
+              {purchaseItems.length > 0 && (
+                <div className="helper">Items: {purchaseItems.map((item) => item.name).join(', ')}</div>
+              )}
             </div>
             {records.filter((r) => !r.receipt).length > 0 && (
               <label>

@@ -25,6 +25,8 @@ const fixtures = new Map([
   ['rewards-balance.jpg', JSON.parse(readFileSync('fixtures/veryfi-recorded/rewards-balance.json', 'utf8'))],
   ['labeled-total-with-balance.png', JSON.parse(readFileSync('fixtures/veryfi-recorded/labeled-total-with-balance.json', 'utf8'))],
   ['labeled-total-with-balance.jpg', JSON.parse(readFileSync('fixtures/veryfi-recorded/labeled-total-with-balance.json', 'utf8'))],
+  ['item-descriptions.png', JSON.parse(readFileSync('fixtures/veryfi-recorded/item-descriptions.json', 'utf8'))],
+  ['item-descriptions.jpg', JSON.parse(readFileSync('fixtures/veryfi-recorded/item-descriptions.json', 'utf8'))],
 ]);
 
 const server = createServer(async (req, res) => {

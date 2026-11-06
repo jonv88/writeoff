@@ -1,0 +1,13 @@
+{
+  "note": "Recorded line items. Descriptions are kept. Prices and tax lines are not purchase items.",
+  "vendor": { "name": "Market Street", "raw_name": "Market Street" },
+  "date": "2026-11-04",
+  "total": 8.5,
+  "currency_code": "USD",
+  "ocr_text": "Market Street\nTOTAL 8.50\nNovember 4, 2026",
+  "line_items": [
+    { "description": "Skittles", "price": 1.49, "total": 1.49, "text": "Skittles 1.49", "type": "product" },
+    { "description": "", "full_description": "Bandages 10 ct", "price": 4.29, "type": "product" },
+    { "description": "Sales tax", "price": 0.99, "type": "tax" }
+  ]
+}
