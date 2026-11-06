@@ -10,7 +10,7 @@ Legend: **Done** · **Partial** · **Blocked** · **Not started**
 | --- | --- | --- |
 | Template lock / five screens | Done | `npm run verify:template` |
 | Supabase migrations | Done (SQL) | Not applied in this environment. Includes sandbox bank and entitlement tables. |
-| Auth / hosted sync | Blocked | Free plan allows two active projects. Both are in use. A third active project is $10/month and was not created. |
+| Auth / hosted sync | Blocked | jonv88's Universe is already Pro. A new Writeoff project is quoted at $10/month and was not created. Rhev and RHEV Development stay active. |
 | Two-customer RLS | Done (local Postgres) | Not applied to a hosted Writeoff project |
 | Capacitor iOS | Partial | Config only. This machine has no Xcode |
 

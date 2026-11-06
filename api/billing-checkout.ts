@@ -26,7 +26,12 @@ export default async function handler(req: NodeRequest, res: NodeResponse): Prom
     return;
   }
   try {
-    const origin = header(req, 'origin') || 'https://writeoff-preview.vercel.app';
+    const origin = header(req, 'origin');
+    if (!origin) {
+      res.statusCode = 403;
+      res.end(JSON.stringify({ error: 'Checkout must start from the private preview.' }));
+      return;
+    }
     const session = await createSandboxCheckout({
       secretKey: secret,
       priceId,

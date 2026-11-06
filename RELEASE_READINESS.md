@@ -45,7 +45,7 @@ A customer cannot yet create a cloud account, sync a phone with a desktop, buy a
 | Receipt amount rules, including a labeled total beside a generic balance | Verified with recorded responses and the review form. Physical iPhone confirmed merchant, date, and amount autofill. |
 | Field diagnostic | `structuredTotal` and `reason` are stored even when eight evidence lines fill the note. |
 | Bank ingestion rules | Tested in `src/lib/bank/sandboxLedger.ts`. No Plaid call. The Accounts screen stays unavailable. |
-| Entitlements | Tested reducer only. The Setup panel says purchases are unavailable. No store price is invented. |
+| Entitlements | A verified event can be written through an injected store. Hosted rows are not verified. The Setup panel says purchases are unavailable. |
 | Database ownership | RLS SQL covers customer tables, receipts storage, bank rows, and entitlements. It has not been applied or isolation-tested against a live project here. |
 | iOS | Capacitor config exists. This machine has no Xcode. |
 

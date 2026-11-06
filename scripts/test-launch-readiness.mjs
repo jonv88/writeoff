@@ -266,6 +266,41 @@ try {
   assert.equal(called, 1);
   assert.match(checkout.url, /cs_test_123/);
 
+  const storeMod = await server.ssrLoadModule('/src/server/entitlementStore.ts');
+  const store = storeMod.memoryEntitlementStore();
+  const customerId = '11111111-1111-4111-8111-111111111111';
+  const storedPayload = JSON.stringify({
+    id: 'evt_store_1',
+    type: 'checkout.session.completed',
+    created: now,
+    data: { object: { client_reference_id: customerId, status: 'complete' } },
+  });
+  const storedHeader = `t=${now},v1=${crypto.createHmac('sha256', secret).update(`${now}.${storedPayload}`).digest('hex')}`;
+  const stored = await storeMod.recordVerifiedStripeEvent({
+    payload: storedPayload,
+    header: storedHeader,
+    secret,
+    nowSec: now,
+    productId: 'writeoff-sandbox',
+    store,
+  });
+  assert.equal(stored.entitlement.state, 'active');
+  const kept = await store.load(customerId, 'writeoff-sandbox');
+  assert.equal(kept.state, 'active');
+  assert.equal(kept.lastEventId, 'evt_store_1');
+  await assert.rejects(
+    storeMod.recordVerifiedStripeEvent({
+      payload: storedPayload,
+      header: `t=${now},v1=00`,
+      secret,
+      nowSec: now,
+      productId: 'writeoff-sandbox',
+      store,
+    }),
+    /rejected/,
+  );
+  assert.equal((await store.load(customerId, 'writeoff-sandbox')).lastEventId, 'evt_store_1');
+
   console.log('PASS launch readiness: export, deletion, sandbox bank, entitlements, drafts, RLS, billing');
 } finally {
   await new Promise((resolve) => http.close(resolve));

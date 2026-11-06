@@ -1,4 +1,4 @@
-import { applyVerifiedStripeEvent } from '../src/server/stripeBilling.ts';
+import { entitlementStoreFromEnv, recordVerifiedStripeEvent } from '../src/server/entitlementStore.ts';
 
 type NodeRequest = {
   method?: string;
@@ -27,17 +27,23 @@ export default async function handler(req: NodeRequest, res: NodeResponse): Prom
   const payload = Buffer.concat(chunks).toString('utf8');
   const header = req.headers['stripe-signature'];
   const signature = Array.isArray(header) ? header[0] || '' : header || '';
+  const store = entitlementStoreFromEnv(process.env);
+  if (!store) {
+    res.statusCode = 503;
+    res.end(JSON.stringify({ error: 'Entitlements are not stored yet.' }));
+    return;
+  }
   try {
-    const result = applyVerifiedStripeEvent({
+    const result = await recordVerifiedStripeEvent({
       payload,
       header: signature,
       secret,
       nowSec: Math.floor(Date.now() / 1000),
       productId: process.env.STRIPE_PRODUCT_ID || 'writeoff-sandbox',
-      current: null,
+      store,
     });
     res.statusCode = 200;
-    res.end(JSON.stringify({ received: true, state: result.entitlement?.state || 'none' }));
+    res.end(JSON.stringify({ received: true, persisted: true, state: result.entitlement.state }));
   } catch {
     res.statusCode = 400;
     res.end(JSON.stringify({ error: 'Stripe event was rejected.' }));
