@@ -24,9 +24,13 @@ export function BankSandboxPanel() {
   async function connect(connectionId?: string) {
     const { link_token } = await request({ action: 'link', connectionId });
     const publicToken = await openSandboxLink(link_token);
-    if (publicToken == null) return;
-    if (!connectionId) await request({ action: 'exchange', publicToken });
-    else await request({ action: 'sync', connectionId });
+    if (!connectionId) {
+      if (!publicToken) return;
+      await request({ action: 'exchange', publicToken });
+    } else {
+      // Update mode can finish without a new public token after the institution is repaired.
+      await request({ action: 'sync', connectionId });
+    }
     await load();
   }
   if (!session) return null;
