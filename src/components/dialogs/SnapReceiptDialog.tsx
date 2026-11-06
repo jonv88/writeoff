@@ -357,7 +357,7 @@ export function SnapReceiptDialog({
         ? 'Reading ran on this device. Saving stores this photo in your private account.'
         : '');
       setStatusMsg(filledLocal
-        ? (result.message || 'Review the details before saving. Reading ran on this device.')
+        ? (result.message || 'Review the details before saving.')
         : (result.message || 'This photo could not be read on this device. Retry, choose another photo, or type the merchant, date, and amount.'));
       setError('');
       return;
@@ -728,7 +728,7 @@ export function SnapReceiptDialog({
             <div className={`notice ${uncertain.length ? 'warningnote' : ''}`}>
               {providerLine && <strong>{providerLine}</strong>}
               <div>{statusMsg || (merchant || amount || date
-                ? 'Review the details before saving. Reading ran on this device.'
+                ? 'Review the details before saving.'
                 : 'This photo could not be read on this device. Retry, choose another photo, or type the merchant, date, and amount.')}</div>
             </div>
             {uncertain.length > 0 && (
@@ -840,8 +840,7 @@ export function SnapReceiptDialog({
               <div>{suggestion.reason}</div>
               {suggestion.question ? <div>{suggestion.question}</div> : null}
               <div className="ruleline">
-                {suggestion.category} · {suggestion.ruleId} {suggestion.ruleVersion}
-                {' · '}Eligible % is set when you review — not from OCR
+                {suggestion.category}. Eligible % is set when you review.
               </div>
               {purchaseItems.length > 0 && (
                 <div className="helper">Items: {purchaseItems.map((item) => item.name).join(', ')}</div>
