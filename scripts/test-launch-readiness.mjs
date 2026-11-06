@@ -204,7 +204,8 @@ try {
   }
   for (const policy of ['profiles', 'expenses', 'receipts', 'rules', 'bank_items', 'entitlements', 'entitlement_events']) {
     assert.match(sql, new RegExp(`${policy}_select_own`));
-    assert.match(sql, new RegExp(`${policy}_delete_own`));
+    if (!policy.startsWith('entitlement')) assert.match(sql, new RegExp(`${policy}_delete_own`));
+    else assert.doesNotMatch(sql, new RegExp(`create policy \"${policy}_(insert|update|delete)_own\"`));
   }
   assert.match(sql, /storage_path like auth\.uid\(\)::text/);
   assert.doesNotMatch(readFileSync('src/lib/billing/sandboxEntitlements.ts', 'utf8'), /\$\d|price|trial/i);

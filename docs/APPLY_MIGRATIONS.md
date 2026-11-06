@@ -1,74 +1,31 @@
-# Writeoff database — review before creation
+# Writeoff hosted database
 
-Do not create this project until the $10 monthly price below is approved. Do not pause, transfer, or query Rhev (`kifjorbyzgiucqtnfctn`) or RHEV Development (`vlvxkviyrhnwyczctjvz`). Both stay active.
+Created with product-owner approval at approximately $10/month additional Micro compute. No paid add-ons. Organization Spend Cap was shown enabled in the owner screenshot; it was not changed. Project `bmmoaticogacrsqztafq` is Writeoff in `us-east-1`. Rhev and RHEV Development were not modified.
 
-## Price shown for this account
+## Applied and verified
 
-Read from Supabase `get_cost` for organization `oaxqxktiifeedoxsbrgp` (`jonv88's Universe`):
+All five migrations below are applied on Writeoff only:
 
-- Type: project
-- Recurrence: monthly
-- Amount: **10**
+1. `20261102190000_phase_a_foundation.sql`
+2. `20261102220000_phase_b_suggestions.sql`
+3. `20261105160000_phase_cd_sandbox.sql`
+4. `20261106010000_bank_sandbox_security.sql`
+5. `20261106050918_hosted_security.sql`
 
-That organization is already on the Pro plan (`tier_pro`). The quote is the additional project. It is not a new Pro subscription. Supabase documents that a Pro organization includes $10 of compute credits, enough for one Micro project, and that each additional project on the default Micro size is about $10 per month, billed by the hour in arrears. Compute is not covered by the spend cap. No invoice total for the existing projects was read.
+The foundation migration no longer tries to alter the Supabase-owned Storage table; its RLS was already enabled. The older entitlement migration now starts with customer read-only access. Automatic review rejected its former write grants; those grants were removed before applying it. Trigger function execution is revoked from customer roles; receipt updates must retain ownership of the linked expense.
 
-A Free project cannot be added inside this Pro organization. The two free-project allowance applies to Free-plan organizations. Pausing Rhev is not part of this proposal.
+Hosted checks: all nine app tables have RLS, receipt bucket is private, authenticated users cannot insert entitlements or select encrypted bank tokens. A transaction-scoped hosted two-customer fixture checked own-row visibility and cross-customer denial, then rolled back all synthetic rows. Security advisor returned no findings. This is SQL-role evidence, not a browser signup, emailed recovery or phone/desktop sync test.
 
-## Exact project configuration
+## Preview configuration
 
-Send this only after approval. No compute upgrade, IPv4 address, point-in-time recovery, custom domain, or read replica.
+Public URL and publishable key plus server URL are set only for `feat/plaid-sandbox` on Vercel `writeoff-preview`, target Preview. No service-role key has been retrieved or set. The existing scanner preview branch and Production configuration are unchanged. New environment variables require a fresh deployment to take effect.
 
-| Field | Value |
-| --- | --- |
-| name | `Writeoff` |
-| organization_id | `oaxqxktiifeedoxsbrgp` |
-| region | `us-east-1` |
-| plan | The organization’s existing Pro plan |
-| compute | Default Micro, the size in the $10 quote |
+Pending owner configuration in Writeoff's Auth dashboard: Site URL and allowed redirect URLs for the isolated Preview, including `/?type=recovery`. Do not disable email verification. The available Supabase connector cannot change Auth settings or retrieve server secrets.
 
-`us-east-1` matches the private preview region. Rhev stays in `ca-central-1`.
+Bank server: add a server-only Supabase service-role key, Plaid Sandbox client id/secret, bank encryption key and exact app origin as described in `BANK_CONNECTION.md`. Never use a RHEV key or put a server key under `VITE_`.
 
-## Migrations, in order, on the Writeoff ref only
+Stripe test-mode variables remain required: `STRIPE_SECRET_KEY` (`sk_test_`), `STRIPE_PRICE_ID`, `STRIPE_WEBHOOK_SECRET` for `/api/billing-webhook`. No paid checkout or real bank is enabled.
 
-1. `supabase/migrations/20261102190000_phase_a_foundation.sql` — profiles, expenses, receipts, merchant rules, row-level security, private `receipts` bucket
-2. `supabase/migrations/20261102220000_phase_b_suggestions.sql` — suggestion and profile columns
-3. `supabase/migrations/20261105160000_phase_cd_sandbox.sql` — bank rows, entitlements, entitlement events
+## Budget
 
-`scripts/apply-migrations.sh` lists those files and refuses both Rhev refs. It pushes SQL only. Receipt reading stays on the private preview; do not deploy another OCR function.
-
-## Private Preview configuration
-
-Set these on Vercel project `writeoff-preview`, environment **Preview**, git branch `cursor/veryfi-live-scan-9e74` only. Then redeploy that preview. Do not set them on Production, and do not move `writeoff-preview.vercel.app`.
-
-`VITE_` values are baked into the browser build. The service-role key must never use a `VITE_` name.
-
-| Name | Where it is used |
-| --- | --- |
-| `VITE_SUPABASE_URL` | Browser. `https://<writeoff-ref>.supabase.co` |
-| `VITE_SUPABASE_PUBLISHABLE_KEY` | Browser. Publishable or anon key |
-| `SUPABASE_URL` | Server. Same project URL |
-| `SUPABASE_SERVICE_ROLE_KEY` | Server only. Webhook entitlement writes |
-
-Auth, in the Writeoff project only:
-
-- Site URL: `https://writeoff-preview-git-cursor-veryfi-80cc29-jonathan-villanueva8.vercel.app`
-- Redirect URLs: that origin, and that origin with `/?type=recovery`
-
-## Stripe test mode
-
-Dashboard test mode only. Refuse any key that starts with `sk_live_`.
-
-| Name | Source |
-| --- | --- |
-| `STRIPE_SECRET_KEY` | Test secret, `sk_test_…` |
-| `STRIPE_PRICE_ID` | Test price, `price_…` |
-| `STRIPE_WEBHOOK_SECRET` | Signing secret for the endpoint below |
-| `STRIPE_PRODUCT_ID` | Optional. Defaults to `writeoff-sandbox` |
-
-Webhook endpoint:
-
-`https://writeoff-preview-git-cursor-veryfi-80cc29-jonathan-villanueva8.vercel.app/api/billing-webhook`
-
-Events: `checkout.session.completed`, `invoice.paid`, `invoice.payment_failed`, `customer.subscription.updated`, `customer.subscription.deleted`.
-
-Checkout must start from that private preview. The signed-in Supabase user id is the Stripe `client_reference_id`. The webhook verifies the signature, then writes `entitlements` and `entitlement_events`. Until the service-role key is set, the webhook answers that entitlements are not stored. No charge is part of this setup.
+Approved spend is the prior bill plus approximately $10/month for this project. No larger compute, replicas, paid branches, IPv4, custom domains, recovery add-ons or extra provider charges are authorized. Spend Cap covers specified metered usage, not compute/add-ons; it is not an exact overall invoice ceiling. Shared organization quotas mean excess usage may restrict multiple projects. Current screenshot projected $34.97 before Writeoff, about $45 with an additional full month of Micro compute. No protection setting was changed on RHEV.

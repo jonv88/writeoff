@@ -27,6 +27,8 @@ await db.exec(`
     name text,
     owner uuid
   );
+  -- Emulate Supabase-managed Storage: RLS is enabled by the platform.
+  alter table storage.objects enable row level security;
   create or replace function storage.foldername(name text) returns text[]
   language sql immutable as $$ select string_to_array(name, '/') $$;
   do $$ begin
@@ -46,6 +48,7 @@ for (const file of [
   'supabase/migrations/20261102190000_phase_a_foundation.sql',
   'supabase/migrations/20261102220000_phase_b_suggestions.sql',
   'supabase/migrations/20261105160000_phase_cd_sandbox.sql',
+  'supabase/migrations/20261106050918_hosted_security.sql',
 ]) {
   const sql = readFileSync(file, 'utf8').replace(/create extension if not exists "pgcrypto";\s*/i, '');
   await db.exec(sql);
