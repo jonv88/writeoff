@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "npm run typecheck && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
     "reference:preview": "python3 -m http.server 8080 --directory reference-template",
@@ -21,7 +21,8 @@
     "eval:receipt-reliability": "node scripts/eval-receipt-reliability.mjs",
     "migrations:print": "bash scripts/apply-migrations.sh",
     "cap:sync": "npm run build && npx cap sync ios",
-    "typecheck": "tsc -b --pretty false"
+    "typecheck": "tsc -b --pretty false && tsc -p tsconfig.server.json --pretty false",
+    "test:bank": "node scripts/test-bank-sandbox.mjs"
   },
   "dependencies": {
     "@capacitor/app": "^8.1.2",
