@@ -28,6 +28,11 @@ try {
  assert.ok(calls.every(c=>c.url==='https://sandbox.plaid.com/transactions/sync'));
  const paged=plaidSandbox(env,async(_url,options)=>{const cursor=JSON.parse(options.body).cursor;return new Response(JSON.stringify({added:[],modified:[],removed:[{transaction_id:cursor||'first'}],next_cursor:cursor?'end':'next',has_more:!cursor}));});
  assert.equal((await paged.sync('token',null)).removed.length,2);
+ const sandboxCalls=[];
+ const sandboxTools=plaidSandbox(env,async(url,options)=>{sandboxCalls.push(url); assert.equal(JSON.parse(options.body).secret,'secret'); assert.equal(JSON.parse(options.body).access_token,'access-sandbox-token'); return new Response('{}');});
+ await sandboxTools.refresh('access-sandbox-token');
+ await sandboxTools.resetLogin('access-sandbox-token');
+ assert.deepEqual(sandboxCalls,['https://sandbox.plaid.com/transactions/refresh','https://sandbox.plaid.com/sandbox/item/reset_login']);
 
  const db=new PGlite();
  await db.exec(`create schema auth; create table auth.users(id uuid primary key); create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$; create role authenticated; create role anon; create role service_role bypassrls; grant usage on schema public,auth to authenticated,service_role;
@@ -66,5 +71,5 @@ try {
  await assert.rejects(db.query(`insert into entitlements values('${b}','active')`));
  await assert.rejects(db.query(`select commit_bank_sync('${a}','${c}','next','{}')`));
  await db.exec('reset role'); await db.close();
- console.log('PASS: sandbox guard, customer origin, token encryption, pagination/restart, atomic cursor, pending replacement, idempotent import, duplicate hold, tenant isolation, token secrecy, entitlement write denial. No external bank calls.');
+ console.log('PASS: sandbox guard, customer origin, token encryption, pagination/restart, atomic cursor, pending replacement, idempotent import, duplicate hold, tenant isolation, token secrecy, entitlement write denial, sandbox refresh and login reset. No external bank calls.');
 } finally { await vite.close(); }

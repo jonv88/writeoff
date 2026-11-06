@@ -24,8 +24,9 @@ export function BankSandboxPanel() {
   async function connect(connectionId?: string) {
     const { link_token } = await request({ action: 'link', connectionId });
     const publicToken = await openSandboxLink(link_token);
-    if (!publicToken) return;
+    if (publicToken == null) return;
     if (!connectionId) await request({ action: 'exchange', publicToken });
+    else await request({ action: 'sync', connectionId });
     await load();
   }
   if (!session) return null;

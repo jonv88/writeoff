@@ -33,6 +33,10 @@ export function plaidSandbox(env: Record<string, string | undefined>, fetchImpl:
       return call<{ access_token: string; item_id: string }>('/item/public_token/exchange', { public_token: publicToken });
     },
     remove(accessToken: string) { return call('/item/remove', { access_token: accessToken }); },
+    /** Sandbox-only. Moves previously pending dynamic transactions to posted. */
+    refresh(accessToken: string) { return call('/transactions/refresh', { access_token: accessToken }); },
+    /** Sandbox-only. Forces the next sync to require Link update mode. */
+    resetLogin(accessToken: string) { return call('/sandbox/item/reset_login', { access_token: accessToken }); },
     async sync(accessToken: string, startCursor: string | null) {
       // Nothing is committed until every page completes. Mutation restarts at the original cursor.
       for (let attempt = 0; attempt < 3; attempt++) {

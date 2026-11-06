@@ -48,6 +48,14 @@ export default async function handler(req: CustomerRequest, res: Response) {
     }
     if (!connectionId || !/^[0-9a-f-]{36}$/i.test(connectionId)) return send(400, { error: 'Choose a bank connection.' });
     const connection = await store.get(connectionId);
+    if (input.action === 'sandbox-refresh') {
+      await provider.refresh(vault.open(connection.encrypted_token, customer.ownerId));
+      return send(200, { refreshed: true });
+    }
+    if (input.action === 'sandbox-reset-login') {
+      await provider.resetLogin(vault.open(connection.encrypted_token, customer.ownerId));
+      return send(200, { reset: true });
+    }
     if (input.action === 'sync') {
       const batch = await provider.sync(vault.open(connection.encrypted_token, customer.ownerId), connection.cursor);
       await store.commit(connectionId, connection.cursor, batch);
