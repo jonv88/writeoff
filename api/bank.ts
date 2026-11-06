@@ -45,6 +45,9 @@ export default async function handler(req: CustomerRequest, res: Response) {
         disconnect: (id) => store.status(id, 'disconnected'),
       });
       await store.purge();
+      const events = await customer.client.from('entitlement_events').delete().eq('user_id', customer.ownerId);
+      const entitlements = await customer.client.from('entitlements').delete().eq('user_id', customer.ownerId);
+      if (events.error || entitlements.error) throw new Error('Subscription records could not be removed.');
       return send(200, { revoked: revoked.length });
     }
     if (!connectionId || !/^[0-9a-f-]{36}$/i.test(connectionId)) return send(400, { error: 'Choose a bank connection.' });
