@@ -12,11 +12,26 @@ export type ServerExtraction =
       reused: boolean;
       reading: ReceiptReading & { provider: string; version: string; mode: string };
     }
-  | { ok: false; processed: false; message: string };
+  | { ok: false; processed: false; skipped?: boolean; message: string };
 
 const MAX_UPLOAD_BYTES = 2_500_000;
 
+/** Ask whether a photo would be sent. A disabled service returns before any upload. */
+export async function cloudReadingEnabled(): Promise<boolean> {
+  try {
+    const response = await fetch('/api/extract-receipt', { method: 'GET' });
+    if (!response.ok) return false;
+    const body = (await response.json()) as { enabled?: boolean };
+    return body.enabled === true;
+  } catch {
+    return false;
+  }
+}
+
 export async function requestServerExtraction(file: File): Promise<ServerExtraction> {
+  if (!(await cloudReadingEnabled())) {
+    return { ok: false, processed: false, skipped: true, message: '' };
+  }
   if (file.size <= 0) return { ok: false, processed: false, message: 'That photo is empty.' };
   if (file.size > MAX_UPLOAD_BYTES) {
     return { ok: false, processed: false, message: 'This photo is too large to send. Enter the details you can see on it.' };

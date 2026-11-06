@@ -43,6 +43,7 @@ export function AppShell() {
   const [decisionUse, setDecisionUse] = useState<'Business' | 'Split' | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [snapOpen, setSnapOpen] = useState(false);
+  const [snapFile, setSnapFile] = useState<File | null>(null);
   const [findMissing, setFindMissing] = useState(false);
 
   const pending = records.filter((r) => !r.reviewed).length;
@@ -257,6 +258,12 @@ export function AppShell() {
           setExpenseOpen(false);
           setExpenseId(null);
         }}
+        onReadReceipt={(file) => {
+          setExpenseOpen(false);
+          setExpenseId(null);
+          setSnapFile(file);
+          setSnapOpen(true);
+        }}
       />
       <DecisionDialog
         open={decisionOpen}
@@ -272,8 +279,20 @@ export function AppShell() {
         open={importOpen}
         onClose={() => setImportOpen(false)}
         onImported={() => setView('Review')}
+        onReadReceipt={(file) => {
+          setImportOpen(false);
+          setSnapFile(file);
+          setSnapOpen(true);
+        }}
       />
-      <SnapReceiptDialog open={snapOpen} onClose={() => setSnapOpen(false)} />
+      <SnapReceiptDialog
+        open={snapOpen}
+        initialFile={snapFile}
+        onClose={() => {
+          setSnapOpen(false);
+          setSnapFile(null);
+        }}
+      />
       <Toast />
     </>
   );

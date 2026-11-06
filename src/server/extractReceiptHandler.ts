@@ -151,6 +151,15 @@ export async function handleExtractReceipt(
   },
 ): Promise<Response> {
   const env = options?.env || {};
+  if (request.method === 'GET') {
+    const enabled = providerEnabled(env)
+      && env.VERCEL_ENV !== 'production'
+      && (!env.VERCEL_GIT_COMMIT_REF || env.VERCEL_GIT_COMMIT_REF === ALLOWED_PREVIEW_BRANCH);
+    return new Response(JSON.stringify({ enabled: Boolean(enabled), provider: 'veryfi' }), {
+      status: 200,
+      headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
+    });
+  }
   if (env.VERCEL_ENV === 'production') return failure(404, 'Receipt reading is not available here.');
   if (!options?.selectRecorded && env.VERCEL_GIT_COMMIT_REF && env.VERCEL_GIT_COMMIT_REF !== ALLOWED_PREVIEW_BRANCH) {
     if (env.VERYFI_LIVE_CALLS === '1' || env.VERYFI_PROVIDER === 'enabled') {

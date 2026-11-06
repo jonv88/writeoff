@@ -31,3 +31,23 @@ dialog input[type=date]::-webkit-datetime-edit-fields-wrapper{min-width:0;max-wi
   dialog input[type=date]{font-size:16px}
 }
 .progress{height:5px;background:#e9eddf;border-radius:8px;overflow:hidden;margin:15px 0}.progress div{height:100%;background:#88a16b}.mobile-label{display:none}@media(max-width:1050px){.twocol{grid-template-columns:1fr}.review-aside{display:none}.receipt-list{grid-template-columns:1fr 1fr}}@media(max-width:760px){aside{flex-wrap:wrap;gap:16px}.nav{margin:0;justify-content:space-between;width:100%;gap:3px}.nav button{font-size:11px;justify-content:center;padding:9px 5px}.nav button span{display:inline}.nav small{display:none}.nav button .navglyph{display:none}.heading{margin:24px 0 20px}.heading .actions{flex-direction:row}.heading{flex-direction:column}.hero{padding:19px;gap:13px;flex-wrap:wrap}.hero h2{font-size:20px}.hero .orb{width:45px;height:45px}.hero>div:nth-child(2){flex:1;min-width:200px}.hero .btn{margin-left:58px}.stats{grid-template-columns:1fr 1fr}.reviewtop .money{font-size:19px}.reviewcard{padding:17px}.receipt-list{grid-template-columns:1fr}.mapping{grid-template-columns:1fr}.quicksteps{gap:10px}.setupchoices{gap:5px}.setupchoices label{padding:10px}.reviewbuttons .btn{padding:12px 9px}header .tag{font-size:9px}.row{gap:8px}.row input{width:100%;min-width:0}.foot{gap:9px}.inlinebuttons .btn{flex:1}}
+html,body{overflow-x:hidden}
+#importdialog{width:min(740px,94vw);max-width:94vw}
+dialog{max-width:94vw}
+dialog input,dialog select,dialog textarea{font-size:16px}
+.inlinebuttons{flex-wrap:wrap}
+.inlinebuttons .btn,.dialogactions .btn,.heading .actions .btn{white-space:normal;max-width:100%}
+.scrolltable{max-width:100%;overflow-x:auto}
+@media(max-width:760px){
+  dialog{width:min(520px,calc(100vw - 16px));max-width:calc(100vw - 16px);max-height:100dvh;margin:0 auto;padding-bottom:24px}
+  #importdialog{width:min(740px,calc(100vw - 16px));max-width:calc(100vw - 16px)}
+  .dialogactions{flex-wrap:wrap}
+  .dialogactions .btn{flex:1 1 140px}
+  .heading .actions{flex-direction:column;width:100%}
+  .hero>div:nth-child(2){min-width:0}
+  .hero .btn{margin-left:0}
+  main,header{max-width:100%;overflow-x:hidden}
+  dialog form,dialog .importbox,dialog .inlinebuttons,dialog .panelhead{min-width:0;max-width:100%}
+  dialog input,dialog select,dialog textarea{max-width:100%;min-width:0}
+  .inlinebuttons .btn{flex:1 1 100%}
+}

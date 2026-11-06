@@ -2,15 +2,18 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { categories, categoryFor, suggest, today, uid } from '../../lib/core';
 import type { ExpenseRecord, ExpenseUse } from '../../lib/types';
 import { useWorkspace } from '../../context/WorkspaceContext';
+import { ReceiptActions } from '../ReceiptActions';
 
 export function ExpenseDialog({
   open,
   expenseId,
   onClose,
+  onReadReceipt,
 }: {
   open: boolean;
   expenseId: string | null;
   onClose: () => void;
+  onReadReceipt?: (file: File) => void;
 }) {
   const { records, profile, rules, saveRecord, removeRecord } = useWorkspace();
   const ref = useRef<HTMLDialogElement>(null);
@@ -269,16 +272,17 @@ export function ExpenseDialog({
           {hint.label}: {hint.reason}
           {hint.question ? ` ${hint.question}` : ''}
         </div>
-        <label>
-          Receipt · image or PDF, up to 3 MB
-          <input
-            type="file"
-            id="receipt"
-            accept="image/*,application/pdf"
-            capture="environment"
-            onChange={(e) => setFile(e.target.files?.[0] || null)}
+        <div>
+          <p className="formhint">
+            A receipt photo is read on this device before you save. JPEG, PNG, WebP, and PDF are supported.
+          </p>
+          <ReceiptActions
+            onReceipt={(chosen) => {
+              if (onReadReceipt) onReadReceipt(chosen);
+              else setFile(chosen);
+            }}
           />
-        </label>
+        </div>
         <div id="receiptinfo" className="formhint">
           {receiptInfo}
         </div>

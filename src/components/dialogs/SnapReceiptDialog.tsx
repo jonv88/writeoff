@@ -56,14 +56,18 @@ type FieldKey = 'merchant' | 'amount' | 'date';
 export function SnapReceiptDialog({
   open,
   onClose,
+  initialFile = null,
 }: {
   open: boolean;
   onClose: () => void;
+  initialFile?: File | null;
 }) {
   const { profile, rules, records, localPreview, saveRecord, showToast } = useWorkspace();
   const ref = useRef<HTMLDialogElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+  const libraryInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const startedFile = useRef<File | null>(null);
   /** Fields the user typed into — OCR must not overwrite these. */
   const userTouched = useRef<Record<FieldKey, boolean>>({
     merchant: false,
@@ -99,7 +103,7 @@ export function SnapReceiptDialog({
   >('none');
   const [extractionVersion, setExtractionVersion] = useState('');
   const [captureHint, setCaptureHint] = useState('');
-  const [session, setSession] = useState<MockSession>(() => readSession());
+  const [, setSession] = useState<MockSession>(() => readSession());
   const [draftOffer, setDraftOffer] = useState<ReceiptDraft | null>(null);
   const draftSaved = useRef(false);
 
@@ -131,6 +135,7 @@ export function SnapReceiptDialog({
       draftSaved.current = false;
       setDraftOffer(loadReceiptDraft());
       if (cameraInputRef.current) cameraInputRef.current.value = '';
+      if (libraryInputRef.current) libraryInputRef.current.value = '';
       if (fileInputRef.current) fileInputRef.current.value = '';
       el.showModal();
     } else if (!open && el.open) {
@@ -250,8 +255,8 @@ export function SnapReceiptDialog({
     setProviderLine('');
     setCaptureHint(
       source === 'camera'
-        ? 'Take photo uses the device camera when the browser supports it (capture=environment). On many desktops the system file picker opens instead.'
-        : 'Choose file opens the photo library / file picker (no forced camera).',
+        ? 'Use the camera, or choose a photo if this device opens the library instead.'
+        : 'Choose a photo, screenshot, or PDF. A spreadsheet or other file is not read as a receipt.',
     );
 
     setPreviewUrl((prev) => {
@@ -266,7 +271,7 @@ export function SnapReceiptDialog({
 
     const draftId = uid();
     setPipeline('reading');
-    setStatusMsg('Reading receipt…');
+    setStatusMsg('Reading the receipt on this device…');
 
     let bundle: Awaited<ReturnType<typeof extractReceipt>>;
     try {
@@ -277,7 +282,7 @@ export function SnapReceiptDialog({
           if (!scanSession.current.isCurrent(scanId)) return;
           if (/^Photo attached/i.test(msg)) {
             setPipeline('photo_attached');
-          } else if (/Reading receipt/i.test(msg) || /Loading on-device|preparing/i.test(msg)) {
+          } else if (/Reading the receipt|Preparing on-device|preparing/i.test(msg)) {
             setPipeline('reading');
           }
           setStatusMsg(msg);
@@ -292,7 +297,9 @@ export function SnapReceiptDialog({
         setOcrProvider(remote.reading.provider);
         setExtractionVersion(remote.reading.version);
         setExtractionStatus(remote.reading.status);
-        setProviderLine(remote.reused ? 'Veryfi already processed this photo.' : 'Veryfi processed this photo.');
+        setProviderLine(remote.reused
+          ? 'This photo was read again from the earlier result.'
+          : 'A receipt service added details. Review them before saving.');
         setPurchaseItems(remote.reading.items || []);
         applyOcrToForm(remote.reading);
         setPhase('review');
@@ -303,10 +310,12 @@ export function SnapReceiptDialog({
       setPhase('review');
       setPipeline('needs_manual');
       setExtractionStatus('failed');
-      setProviderLine('On-device reading kept. The receipt service did not receive this photo.');
+      setProviderLine('');
       setUncertain(['merchant', 'date', 'total']);
-      setError(remote.message);
-      setStatusMsg(remote.message);
+      setError('');
+      setStatusMsg(remote.skipped
+        ? 'This photo could not be read on this device. Retry, choose another photo, or type the merchant, date, and amount.'
+        : remote.message);
       return;
     }
 
@@ -338,16 +347,24 @@ export function SnapReceiptDialog({
     );
     applyOcrToForm(result);
     setPhase('review');
-    setProviderLine('Checking whether Veryfi processed this photo.');
-    setStatusMsg('Read on this device. Waiting for the receipt service.');
     bumpSession((prev) => ({ ...prev, snaps: prev.snaps + 1, reviews: prev.reviews + 1 }));
+    const filledLocal = Boolean(result.merchant || result.date || result.total != null);
 
     const remote = await requestServerExtraction(attachFile || f);
     if (!scanSession.current.isCurrent(scanId)) return;
+    if (!remote.ok) {
+      setProviderLine(filledLocal
+        ? 'Reading ran on this device. Saving stores this photo in your private account.'
+        : '');
+      setStatusMsg(filledLocal
+        ? (result.message || 'Review the details before saving. Reading ran on this device.')
+        : (result.message || 'This photo could not be read on this device. Retry, choose another photo, or type the merchant, date, and amount.'));
+      setError('');
+      return;
+    }
     const merged = mergeReceiptReading({
       local: result,
-      remote: remote.ok ? remote.reading : null,
-      remoteError: remote.ok ? undefined : remote.message,
+      remote: remote.reading,
     });
     setOcrProvider(merged.provider || null);
     setExtractionVersion(merged.version || '');
@@ -355,13 +372,12 @@ export function SnapReceiptDialog({
     setProviderLine(
       remote.processed
         ? remote.reused
-          ? 'Veryfi already processed this photo.'
-          : 'Veryfi processed this photo.'
-        : remote.ok && remote.reading.mode === 'recorded'
+          ? 'This photo was read again from the earlier result.'
+          : 'A receipt service added details. Review them before saving.'
+        : remote.reading.mode === 'recorded'
           ? 'Saved test reading applied. This photo was not sent to the live receipt service.'
-          : 'On-device reading kept. The receipt service did not receive this photo.',
+          : 'Reading ran on this device. Saving stores this photo in your private account.',
     );
-    if (!remote.ok) setError('');
     setPurchaseItems(merged.items || []);
     applyOcrToForm(merged);
 
@@ -491,13 +507,38 @@ export function SnapReceiptDialog({
     }
   }
 
+  function closeReview() {
+    if (phase === 'review' && !draftSaved.current && (merchant || amount || date)) {
+      saveReceiptDraft({
+        merchant,
+        amount,
+        date,
+        currency,
+        notes,
+        updatedAt: new Date().toISOString(),
+      });
+      if (file) void saveReceiptPhoto(file, { name: file.name, type: file.type });
+    }
+    onClose();
+  }
+
+  useEffect(() => {
+    if (!open) {
+      startedFile.current = null;
+      return;
+    }
+    if (!initialFile || startedFile.current === initialFile) return;
+    startedFile.current = initialFile;
+    void acceptFile(initialFile, 'file');
+  }, [open, initialFile]);
+
   const browserMode = localPreview || ocrProvider === 'tesseract.js' || phase !== 'pick';
 
   const pipelineLabel =
     pipeline === 'photo_attached'
       ? 'Photo attached'
       : pipeline === 'reading'
-        ? 'Reading receipt'
+        ? 'Reading the receipt on this device'
         : pipeline === 'details_filled'
           ? 'Details filled in'
           : pipeline === 'needs_manual'
@@ -508,32 +549,25 @@ export function SnapReceiptDialog({
     <dialog
       id="snapReceiptdialog"
       ref={ref}
-      onClose={onClose}
       onCancel={(e) => {
         e.preventDefault();
-        onClose();
+        closeReview();
       }}
     >
       <form onSubmit={onSubmit}>
         <div className="panelhead">
           <h2>Snap a receipt</h2>
-          <button type="button" className="edit" onClick={onClose} aria-label="Close">
+          <button type="button" className="edit" onClick={closeReview} aria-label="Close">
             ✕
           </button>
         </div>
         <p>Photograph or choose a receipt. No bank connection required.</p>
         {browserMode && phase === 'pick' && (
           <div className="notice" style={{ marginBottom: 12 }}>
-            The photo is read on this device first. The review screen says whether Veryfi processed
-            it. Review merchant, date, and amount before saving. Nothing is saved until you confirm.
+            Reading runs on this device. Review the merchant, date, and amount before saving.
+            Nothing is saved until you confirm.
           </div>
         )}
-        <p className="formhint">
-          Private test: snap a chain, an independent merchant, and a restaurant with a tip. Use fresh
-          redacted or synthetic receipts. Session on this device: {session.snaps} snapped ·{' '}
-          {session.reviews} reviewed · {session.savesWithoutTyping} saved without typing ·{' '}
-          {session.fieldsLeftForReview} fields left for review.
-        </p>
 
         {phase === 'pick' && draftOffer && (
           <div className="notice" style={{ marginBottom: 12 }}>
@@ -559,7 +593,9 @@ export function SnapReceiptDialog({
                       });
                     }
                     userTouched.current = { merchant: true, amount: true, date: true };
-                    setProviderLine('On-device reading kept. The receipt service did not receive this photo.');
+                    setProviderLine(draftOffer.merchant || draftOffer.amount || draftOffer.date
+                      ? 'Reading ran on this device. Saving stores this photo in your private account.'
+                      : '');
                     setPhase('review');
                     setDraftOffer(null);
                   })();
@@ -585,30 +621,23 @@ export function SnapReceiptDialog({
         {phase === 'pick' && (
           <div className="importbox">
             <div className="inlinebuttons" style={{ marginBottom: 12 }}>
-              <button
-                type="button"
-                className="btn"
-                onClick={() => cameraInputRef.current?.click()}
-              >
+              <button type="button" className="btn" onClick={() => cameraInputRef.current?.click()}>
                 Take photo
               </button>
-              <button
-                type="button"
-                className="btn secondary"
-                onClick={() => fileInputRef.current?.click()}
-              >
+              <button type="button" className="btn secondary" onClick={() => libraryInputRef.current?.click()}>
+                Choose photos or screenshots
+              </button>
+              <button type="button" className="btn secondary" onClick={() => fileInputRef.current?.click()}>
                 Choose file
               </button>
             </div>
-            {/* capture=environment: requests rear camera on supporting mobile browsers.
-                Desktop Chrome/Firefox typically fall back to the file picker — that is expected. */}
             <input
               ref={cameraInputRef}
               type="file"
               accept="image/*"
               capture="environment"
               style={{ position: 'absolute', width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
-              aria-label="Take photo with camera"
+              aria-label="Take photo"
               onChange={(e) => {
                 const f = e.target.files?.[0];
                 e.target.value = '';
@@ -616,9 +645,21 @@ export function SnapReceiptDialog({
               }}
             />
             <input
+              ref={libraryInputRef}
+              type="file"
+              accept="image/*"
+              style={{ position: 'absolute', width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
+              aria-label="Choose photos or screenshots"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                e.target.value = '';
+                void acceptFile(f, 'file');
+              }}
+            />
+            <input
               ref={fileInputRef}
               type="file"
-              accept="image/*,application/pdf"
+              accept="image/*,application/pdf,.heic,.heif"
               style={{ position: 'absolute', width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
               aria-label="Choose receipt file"
               onChange={(e) => {
@@ -628,17 +669,13 @@ export function SnapReceiptDialog({
               }}
             />
             <p className="formhint">
-              <strong>Take photo</strong> asks for the rear camera when the browser supports it
-              (iPhone Safari usually opens Camera). <strong>Choose file</strong> opens your library
-              or files. JPEG/PNG preferred · large photos are resized for OCR. Cancel anytime —
-              nothing is saved until you confirm. Reading starts on this device. A photo is sent
-              to the receipt service only when cloud reading is turned on for an active {APPROVED_PLAN.label} subscription.
-              Cloud reading is off, so this photo stays here for you to review and edit. Photos over 3 MB
-              are not stored. The service
-              does not keep a copy, and the private copy in your account is removed when you delete
-              the expense or the account.
+              JPEG, PNG, WebP, and PDF are supported. HEIC from an iPhone is read when this browser
+              can open it. Reading runs on this device. Saving stores the photo in your private
+              account, up to 3 MB, and removes it when you delete the expense or the account.
+              {APPROVED_PLAN.label} does not turn on a separate receipt service in this preview.
+              A cloud drive can appear in the file picker; it is optional.
               {localPreview
-                ? ' The file and extracted fields stay in this browser only — they do not sync across devices.'
+                ? ' In local preview, the file stays in this browser and does not sync.'
                 : ''}
             </p>
           </div>
@@ -689,8 +726,10 @@ export function SnapReceiptDialog({
               </div>
             )}
             <div className={`notice ${uncertain.length ? 'warningnote' : ''}`}>
-              <strong>{providerLine || 'On-device reading kept. The receipt service did not receive this photo.'}</strong>
-              <div>{statusMsg || 'Review the details before saving.'}</div>
+              {providerLine && <strong>{providerLine}</strong>}
+              <div>{statusMsg || (merchant || amount || date
+                ? 'Review the details before saving. Reading ran on this device.'
+                : 'This photo could not be read on this device. Retry, choose another photo, or type the merchant, date, and amount.')}</div>
             </div>
             {uncertain.length > 0 && (
               <p className="formhint">
@@ -707,6 +746,16 @@ export function SnapReceiptDialog({
               </p>
             )}
             {captureHint && <p className="formhint">{captureHint}</p>}
+            {!merchant && !amount && !date && (
+              <div className="inlinebuttons" style={{ marginBottom: 12 }}>
+                <button type="button" className="btn secondary" onClick={() => file && void acceptFile(file, 'file')}>
+                  Retry
+                </button>
+                <button type="button" className="btn secondary" onClick={() => { setPhase('pick'); setPipeline('idle'); }}>
+                  Replace photo
+                </button>
+              </div>
+            )}
             <div className="row">
               <label>
                 Merchant
@@ -838,7 +887,7 @@ export function SnapReceiptDialog({
           </div>
         )}
         <div className="dialogactions">
-          <button type="button" className="btn secondary" onClick={onClose}>
+          <button type="button" className="btn secondary" onClick={closeReview}>
             Cancel
           </button>
           {phase === 'review' && (

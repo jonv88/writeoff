@@ -252,29 +252,35 @@ export function mergeReceiptReading(input: {
 
   const merchant = localKept(local, 'merchant')
     ? local.merchant
-    : remote && !remote.uncertainFields.includes('merchant')
+    : remote && !remote.uncertainFields.includes('merchant') && remote.merchant
       ? remote.merchant
-      : null;
+      : !remote && local.merchant?.trim()
+        ? local.merchant
+        : null;
   if (!merchant) uncertain.push('merchant');
 
   const date = localKept(local, 'date')
     ? local.date
-    : remote && !remote.uncertainFields.includes('date')
+    : remote && !remote.uncertainFields.includes('date') && remote.date
       ? remote.date
-      : null;
+      : !remote && local.date
+        ? local.date
+        : null;
   if (!date) uncertain.push('date');
 
   const total = localKept(local, 'total')
     ? local.total
-    : remote && !remote.uncertainFields.includes('total')
+    : remote && !remote.uncertainFields.includes('total') && remote.total != null
       ? remote.total
-      : null;
+      : !remote && local.total != null
+        ? local.total
+        : null;
   if (total == null) uncertain.push('total');
 
   let message = uncertain.length
     ? 'Some fields need a quick check before saving.'
     : 'Review the details before saving.';
-  if (input.remoteError) {
+  if (input.remoteError && remote) {
     message = merchant || date || total != null
       ? `${input.remoteError} On-device details are still shown for review.`
       : input.remoteError;

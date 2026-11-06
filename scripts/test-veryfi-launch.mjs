@@ -12,6 +12,10 @@ try {
   const policy = await server.ssrLoadModule('/src/server/veryfiPolicy.ts');
   const plan = await server.ssrLoadModule('/src/lib/billing/plan.ts');
   const evidence = await server.ssrLoadModule('/src/lib/ocr/receiptEvidence.ts');
+  const files = await server.ssrLoadModule('/src/lib/ocr/importFileValidation.ts');
+  const heic = new Uint8Array(16);
+  heic.set([0, 0, 0, 24, 0x66, 0x74, 0x79, 0x70, 0x68, 0x65, 0x69, 0x63]);
+  assert.equal(files.detectReceiptMimeFromMagicBytes(heic), 'image/heic');
 
   assert.equal(plan.APPROVED_PLAN.amountCents, 999);
   assert.equal(plan.APPROVED_PLAN.interval, 'month');
@@ -93,6 +97,37 @@ try {
   });
   assert.equal(merged.merchant, 'Typed Cafe');
   assert.equal(merged.total, 4.5);
+  const uncertainLocal = {
+    ...local,
+    merchant: 'Target',
+    date: '2026-10-02',
+    total: 12.34,
+    uncertainFields: ['merchant', 'date', 'total'],
+    status: 'needs_details',
+    message: 'Review these details.',
+  };
+  const kept = evidence.mergeReceiptReading({
+    local: uncertainLocal,
+    remote: null,
+    remoteError: 'Live receipt reading is turned off.',
+  });
+  assert.equal(kept.merchant, 'Target');
+  assert.equal(kept.date, '2026-10-02');
+  assert.equal(kept.total, 12.34);
+  assert.equal(kept.message, 'Review these details.');
+
+  resetExtractGuards();
+  let statusCalls = 0;
+  const availability = await handleExtractReceipt(new Request('https://preview.test/api/extract-receipt', { method: 'GET' }), {
+    env: { VERCEL_ENV: 'preview', VERCEL_GIT_COMMIT_REF: 'feat/plaid-sandbox', VERYFI_LIVE_CALLS: '1' },
+    processDocument: async () => {
+      statusCalls += 1;
+      return {};
+    },
+  });
+  assert.equal(availability.status, 200);
+  assert.equal((await availability.json()).enabled, false);
+  assert.equal(statusCalls, 0);
 
   resetExtractGuards();
   const realUnentitled = await post(jpeg, { key: 'launch-pay-2' }, {

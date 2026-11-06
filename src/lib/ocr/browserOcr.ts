@@ -5,6 +5,7 @@
  */
 import type { OcrExtraction } from './adapter';
 import { US_MERCHANTS } from './usMerchants';
+import workerPath from 'tesseract.js/dist/worker.min.js?url';
 import { prepareReceiptPhoto } from './photoPrep';
 import { parseTotalFromText, reconcileReceiptOcrText } from './receiptTotals.ts';
 
@@ -12,7 +13,8 @@ export { parseTotalFromText, reconcileReceiptOcrText };
 
 const VERSION = 'browser-tesseract-2026.11.04c';
 
-const CUSTOMER_REVIEW_MSG = 'Review the details before saving.';
+const CUSTOMER_REVIEW_MSG = 'Review the details before saving. Reading ran on this device.';
+const CUSTOMER_BLANK_MSG = 'This photo could not be read on this device. Retry, choose another photo, or type the merchant, date, and amount.';
 
 export type FieldHints = {
   merchant?: string;
@@ -335,6 +337,16 @@ export function parseMerchantFromText(
   return parseMerchantDetails(text, positionedLines, imageHeight).merchant;
 }
 
+function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error('timeout')), ms);
+  });
+  return Promise.race([work, timeout]).finally(() => {
+    if (timer) clearTimeout(timer);
+  }) as Promise<T>;
+}
+
 export function formatOcrAmount(total: number): string {
   return total.toFixed(2);
 }
@@ -383,7 +395,7 @@ export function parseReceiptText(text: string, confidencePct: number,
   if (!merchant && !date && total == null) {
     return base({
       status: 'needs_details',
-      message: CUSTOMER_REVIEW_MSG,
+      message: CUSTOMER_BLANK_MSG,
       confidence: confidencePct / 100,
       rawTextPreview: preview || undefined,
       uncertainFields: ['merchant', 'date', 'total'],
@@ -426,7 +438,7 @@ export async function extractWithBrowserOcr(
     return {
       extraction: base({
         status: 'needs_details',
-        message: CUSTOMER_REVIEW_MSG,
+        message: prepared.message || CUSTOMER_BLANK_MSG,
         uncertainFields: ['merchant', 'date', 'total'],
       }),
       attachFile: prepared.attachFile,
@@ -435,22 +447,25 @@ export async function extractWithBrowserOcr(
   }
 
   onProgress?.('Photo attached');
-  onProgress?.('Reading receipt…');
+  onProgress?.('Reading the receipt on this device…');
 
   try {
     const { createWorker } = await import('tesseract.js');
-    const worker = await createWorker('eng', 1, {
+    const worker = await withTimeout(createWorker('eng', 1, {
+      workerPath,
+      workerBlobURL: false,
       logger: (m) => {
         if (m.status === 'recognizing text' && typeof m.progress === 'number') {
-          onProgress?.(`Reading receipt… ${Math.round(m.progress * 100)}%`);
-        } else if (m.status === 'loading language traineddata') {
-          onProgress?.('Reading receipt… loading language data');
+          onProgress?.(`Reading the receipt on this device… ${Math.round(m.progress * 100)}%`);
+        } else if (m.status === 'loading language traineddata' || m.status === 'initializing api' || m.status === 'loading tesseract core') {
+          onProgress?.('Preparing on-device reading…');
         }
       },
-    });
+    }), 75_000);
     let extraction: OcrExtraction;
     try {
-      const { data } = await worker.recognize(prepared.ocrFile);
+      const recognized = await withTimeout(worker.recognize(prepared.ocrFile), 45_000);
+      const { data } = recognized;
       const fullText = data.text || '';
       extraction = parseReceiptText(fullText, data.confidence || 0, data.lines, prepared.height);
 
@@ -547,11 +562,15 @@ export async function extractWithBrowserOcr(
       attachFile: prepared.attachFile,
       previewUrl: prepared.previewUrl,
     };
-  } catch {
+  } catch (error) {
+    console.error('receipt-read', error);
+    const timedOut = error instanceof Error && error.message === 'timeout';
     return {
       extraction: base({
         status: 'failed',
-        message: CUSTOMER_REVIEW_MSG,
+        message: timedOut
+          ? 'Reading this photo took too long on this device. Retry, choose another photo, or type the merchant, date, and amount.'
+          : CUSTOMER_BLANK_MSG,
       }),
       attachFile: prepared.attachFile,
       previewUrl: prepared.previewUrl,
