@@ -7,13 +7,13 @@ import type { OcrExtraction } from './adapter';
 import { US_MERCHANTS } from './usMerchants';
 import workerPath from 'tesseract.js/dist/worker.min.js?url';
 import { prepareReceiptPhoto } from './photoPrep';
-import { parseTotalFromText, reconcileReceiptOcrText } from './receiptTotals.ts';
+import { correctSubtotalMisread, explainTotal, parseTotalFromText, reconcileReceiptOcrText } from './receiptTotals.ts';
 
 export { parseTotalFromText, reconcileReceiptOcrText };
 
 const VERSION = 'browser-tesseract-2026.11.04c';
 
-const CUSTOMER_REVIEW_MSG = 'Review the details before saving. Reading ran on this device.';
+const CUSTOMER_REVIEW_MSG = 'Review the details before saving.';
 const CUSTOMER_BLANK_MSG = 'This photo could not be read on this device. Retry, choose another photo, or type the merchant, date, and amount.';
 
 export type FieldHints = {
@@ -369,7 +369,9 @@ export function parseReceiptText(text: string, confidencePct: number,
   // Merchant confidence is independent of date/amount success.
   let merchant = merchantDetails.merchant;
   const date = parseDateFromText(reconciled);
-  const { total, currency } = parseTotalFromText(reconciled);
+  const explainedTotal = explainTotal(reconciled);
+  const total = explainedTotal.total;
+  const currency = explainedTotal.currency;
   const uncertain: string[] = [];
   if (!merchant) uncertain.push('merchant');
   else if (merchantDetails.weak) uncertain.push('merchant');
@@ -382,6 +384,7 @@ export function parseReceiptText(text: string, confidencePct: number,
     if (date) uncertain.push('date');
     if (total != null) uncertain.push('total');
   }
+  if (explainedTotal.reason === 'accepted-cash-change' && total != null) uncertain.push('total');
   const unique = [...new Set(uncertain)];
   // Prefer blank over an unflagged wrong merchant: if merchant is weak AND
   // evidence is prominence-only with middling line OCR, leave blank.
@@ -522,8 +525,9 @@ export async function extractWithBrowserOcr(
           // Keep fields recovered by the full scan.
         }
       }
-      // Focused final-total / balance region when amount is still blank.
-      if (extraction.total == null && prepared.width && prepared.height) {
+      // Focused final-total region. Also reread a modest-confidence total, because
+      // a full-page pass can label the subtotal as the total.
+      if (prepared.width && prepared.height && (extraction.total == null || (data.confidence || 0) < 80)) {
         try {
           const top = Math.floor(prepared.height * 0.45);
           const { data: mid } = await worker.recognize(prepared.ocrFile, {
@@ -536,22 +540,32 @@ export async function extractWithBrowserOcr(
           });
           if (mid.confidence >= 45) {
             const focusedTotal = parseTotalFromText(mid.text);
-            const combinedTotal = parseTotalFromText(fullText + '\n' + mid.text);
-            const total = combinedTotal.total ?? focusedTotal.total;
-            if (total != null) {
-              extraction.total = total;
-              extraction.currency = combinedTotal.currency || focusedTotal.currency || 'USD';
-              extraction.uncertainFields = extraction.uncertainFields.filter((f) => f !== 'total');
-              // Merchant uncertainty stays — amount recovery must not mask it.
-              if (!extraction.merchant && !extraction.uncertainFields.includes('merchant')) {
-                extraction.uncertainFields.push('merchant');
+            if (extraction.total == null) {
+              const combinedTotal = parseTotalFromText(fullText + '\n' + mid.text);
+              const total = combinedTotal.total ?? focusedTotal.total;
+              if (total != null) {
+                extraction.total = total;
+                extraction.currency = combinedTotal.currency || focusedTotal.currency || 'USD';
+                extraction.uncertainFields = extraction.uncertainFields.filter((f) => f !== 'total');
+                // Merchant uncertainty stays — amount recovery must not mask it.
+                if (!extraction.merchant && !extraction.uncertainFields.includes('merchant')) {
+                  extraction.uncertainFields.push('merchant');
+                }
+                extraction.fieldHints = fieldHintsFor(extraction.uncertainFields);
+                extraction.status = extraction.uncertainFields.length ? 'needs_details' : 'ready';
               }
-              extraction.fieldHints = fieldHintsFor(extraction.uncertainFields);
-              extraction.status = extraction.uncertainFields.length ? 'needs_details' : 'ready';
+            } else {
+              const corrected = correctSubtotalMisread(extraction.total, focusedTotal.total, mid.text || '');
+              if (corrected != null) {
+                extraction.total = corrected;
+                if (!extraction.uncertainFields.includes('total')) extraction.uncertainFields.push('total');
+                extraction.fieldHints = fieldHintsFor(extraction.uncertainFields);
+                extraction.status = 'needs_details';
+              }
             }
           }
         } catch {
-          // Keep blank amount rather than invent.
+          // Keep the full-page amount rather than invent one.
         }
       }
     } finally {

@@ -10,7 +10,7 @@ try {
   const totals = await server.ssrLoadModule('/src/lib/ocr/receiptTotals.ts');
   const handlerMod = await server.ssrLoadModule('/src/server/extractReceiptHandler.ts');
   const { resolveVeryfiDocument, mergeReceiptReading, resolveUsDate, evidenceDate } = evidence;
-  const { parseTotalFromText, explainTotal, rowsFromLayout } = totals;
+  const { parseTotalFromText, explainTotal, rowsFromLayout, correctSubtotalMisread } = totals;
   const liveMod = await server.ssrLoadModule('/src/server/veryfiLive.ts');
   const { handleExtractReceipt, resetExtractGuards, liveDocumentCount } = handlerMod;
   const { handlePreviewAccess } = await server.ssrLoadModule('/src/server/ownerAccess.ts');
@@ -31,6 +31,22 @@ try {
     15.97,
   );
   assert.equal(parseTotalFromText('****BALANCE 25.96').total, 25.96);
+  assert.equal(
+    correctSubtotalMisread(14.98, 15.97, 'SUBTOTAL 14.98\nSALES TAX 0.99\nTOTAL 15.97\nCASH 20.00\nCHANGE 4.05'),
+    15.97,
+  );
+  assert.equal(correctSubtotalMisread(19.58, 19.58, 'SUBTOTAL 17.56\nTOTAL 19.58'), null);
+  assert.equal(correctSubtotalMisread(25.96, 25.96, 'SUBTOTAL 14.98\nTOTAL 25.96'), null);
+  assert.equal(correctSubtotalMisread(4.9, 9.99, 'TOTAL 9.99'), null);
+  assert.equal(correctSubtotalMisread(null, 15.97, 'SUBTOTAL 14.98\nTOTAL 15.97'), null);
+  assert.equal(parseTotalFromText('TOTAL 14.98\nTAX 0.99\nTOTAL 15.97\nCASH 20.00\nCHANGE 4.05').total, 15.97);
+  assert.equal(explainTotal('TOTAL 14.98\nTAX 0.99\nTOTAL 15.97\nCASH 20.00\nCHANGE 4.05').reason, 'accepted-cash-change');
+  assert.equal(parseTotalFromText('TOTAL 12.50\nTOTAL 15.00\nCASH 20.00\nCHANGE 4.00').total, null);
+  assert.equal(parseTotalFromText('TOTAL 10.00\nTOTAL 12.00').total, null);
+  assert.equal(
+    parseTotalFromText('TOTAL 15.97\nCASH 20.00\nCHANGE 4.05\nBALANCE 0.73\nGRAND TOTAL 11.00').total,
+    null,
+  );
   const structuredCash = explainTotal('TOTAL\n4.92\nCASH TENDERED\n5.00\nCHANGE\n0.08', { structured: { total: 5 } });
   assert.equal(structuredCash.total, 4.92);
   assert.equal(structuredCash.reason, 'accepted-next-line');
