@@ -11,12 +11,14 @@ export const DELETION_STEPS = [
   'delete_bank_items',
   'delete_entitlements',
   'delete_profile',
+  'revoke_sessions',
+  'delete_identity',
 ] as const;
 
 export type DeletionStep = (typeof DELETION_STEPS)[number];
 
 export const DELETION_RETENTION =
-  'Receipt photos and expense records are removed after the server confirms deletion. A subscription cancellation does not remove them. Local preview data stays in this browser until you reset it here.';
+  'Deleting the account removes receipt photos, expense records, and the sign-in. A subscription cancellation does not remove them. Local preview data stays in this browser until you reset it here.';
 
 export function subscriptionCancelKeepsRecords(): true {
   return true;

@@ -76,7 +76,8 @@ try {
   );
   assert.deepEqual(done, [...deletion.DELETION_STEPS]);
   assert.equal(calls[0], 'disconnect:customer-a');
-  assert.equal(calls.at(-1), 'delete_profile:customer-a');
+  assert.equal(calls.at(-2), 'revoke_sessions:customer-a');
+  assert.equal(calls.at(-1), 'delete_identity:customer-a');
   assert.equal(deletion.subscriptionCancelKeepsRecords(), true);
   await assert.rejects(() => deletion.deleteOwnedAccount({
     async disconnectProviders() {},
@@ -94,6 +95,17 @@ try {
     },
   }, 'customer-a'), /provider still linked/);
   assert.equal(failed, true);
+
+  const partial = [];
+  await assert.rejects(() => deletion.deleteOwnedAccount({
+    async disconnectProviders() { partial.push('disconnect'); },
+    async deleteOwned(step) {
+      partial.push(step);
+      if (step === 'delete_expenses') throw new Error('records remain');
+    },
+  }, 'customer-a'), /records remain/);
+  assert.equal(partial.includes('delete_identity'), false);
+  assert.equal(partial.includes('revoke_sessions'), false);
 
   const sample = {
     providerId: 'p1',
