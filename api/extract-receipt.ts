@@ -1,4 +1,5 @@
 import { handleExtractReceipt } from '../src/server/extractReceiptHandler.ts';
+import { consumeScanAllowance, reserveOpenAiScan, resolveScanCustomer, scanRequestAllowed } from '../src/server/scanCustomer.ts';
 
 export const config = {
   api: {
@@ -42,7 +43,23 @@ export default async function handler(req: NodeRequest, res: NodeResponse): Prom
     headers,
     body: req.method === 'GET' || req.method === 'HEAD' ? undefined : body,
   });
-  const response = await handleExtractReceipt(request, { env: process.env });
+  let customer: Awaited<ReturnType<typeof resolveScanCustomer>> = null;
+  const response = await handleExtractReceipt(request, {
+    env: process.env,
+    resolveCustomer: async () => {
+      customer = await resolveScanCustomer({ headers: req.headers }, process.env);
+      return customer ? { ownerId: customer.ownerId, entitled: customer.entitled } : null;
+    },
+    allowRequest: scanRequestAllowed,
+    consumeAllowance: async (ownerId) => {
+      if (!customer?.client || customer.ownerId !== ownerId) return false;
+      return consumeScanAllowance(customer.client, ownerId, process.env);
+    },
+    reserveOpenAi: async (ownerId) => {
+      if (!customer?.client || customer.ownerId !== ownerId) return false;
+      return reserveOpenAiScan(customer.client, ownerId, process.env);
+    },
+  });
   res.statusCode = response.status;
   response.headers.forEach((value, key) => res.setHeader(key, value));
   res.end(Buffer.from(await response.arrayBuffer()));

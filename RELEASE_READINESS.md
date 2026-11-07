@@ -65,3 +65,14 @@ Browser, recorded replay only, at `http://127.0.0.1:5181`: amount 15.97 for the 
 ## Result
 
 Development MVP. Not a verified release candidate and not App Store-ready.
+
+
+## Bank Sandbox implementation — Nov 6, 2026
+
+Built on 69a6ccb, preserving scanner checkpoint 5241bc3. Optional authenticated Plaid Sandbox Link, token exchange, encrypted token persistence, paginated sync, staged transactions, explicit posted-purchase import, confirmed receipt matching, reconnect and disconnect are implemented. Production provider use is refused. Missing credentials return unavailable, never a fake connection.
+
+Local bank tests execute the migration on in-process Postgres and cover RLS isolation, token-column denial, service-only functions, duplicate holds, pending replacement, idempotent import, customer-bound encryption and pagination restart. Build and server typecheck pass. Receipt evidence/OCR/isolation, suggestions, launch checks and reference hashes pass. No live Plaid or Veryfi call, physical-phone bank test, hosted database application or new visual-parity screenshot was performed. Existing scanner files and template bytes are unchanged.
+
+Subscription security: migration revokes customer writes to entitlements/events; checkout now verifies bearer authentication and an exact configured Origin instead of trusting a supplied customer id. These changes must be applied before hosted billing testing.
+
+Not launch-ready: dedicated hosted Writeoff database and Plaid Sandbox/Stripe test credentials are absent. Banks additionally need live Sandbox end-to-end validation, signed update webhooks/scheduling, reconciliation of provider corrections/refunds, account-deletion revocation, production product approval and device OAuth checks. Banks can stay unavailable for a receipt-first web launch. Hosted auth/storage/deletion/billing and native store/device gates remain. No recurring purchase, merge, public-alias move or Production deployment was performed. Setup: docs/BANK_CONNECTION.md.

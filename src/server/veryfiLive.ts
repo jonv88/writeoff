@@ -47,6 +47,7 @@ export async function processVeryfiDocument(
   credentials: VeryfiCredentials,
   fetchImpl: typeof fetch = fetch,
   idempotencyKey?: string,
+  options?: { timeoutMs?: number },
 ): Promise<VeryfiDocumentShape> {
   if (!credentials.clientId || !credentials.username || !credentials.apiKey) {
     throw new VeryfiRequestError(503);
@@ -59,16 +60,27 @@ export async function processVeryfiDocument(
     AUTHORIZATION: `apikey ${credentials.username}:${credentials.apiKey}`,
   };
   if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
-  const response = await fetchImpl('https://api.veryfi.com/api/v8/partner/documents', {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({
-      file_name: `receipt.${extension}`,
-      file_data: bytesToBase64(bytes),
-      auto_delete: true,
-      boost_mode: false,
-    }),
-  });
+  const controller = new AbortController();
+  const timeoutMs = options?.timeoutMs ?? 20_000;
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let response: Response;
+  try {
+    response = await fetchImpl('https://api.veryfi.com/api/v8/partner/documents', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        file_name: `receipt.${extension}`,
+        file_data: bytesToBase64(bytes),
+        auto_delete: true,
+        boost_mode: false,
+      }),
+      signal: controller.signal,
+    });
+  } catch {
+    throw new VeryfiRequestError(504);
+  } finally {
+    clearTimeout(timer);
+  }
   if (!response.ok) throw new VeryfiRequestError(response.status);
   const payload = (await response.json()) as Record<string, unknown>;
   return toVeryfiDocument(payload);

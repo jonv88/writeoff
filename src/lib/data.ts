@@ -385,7 +385,7 @@ async function deleteOwnRows(
   optional: boolean,
 ): Promise<void> {
   const { error } = await sb.from(table).delete().eq('user_id', userId);
-  if (error && optional && missingRelation(error)) return;
+  if (error && optional && (missingRelation(error) || error.code === '42501')) return;
   if (error) throw error;
 }
 

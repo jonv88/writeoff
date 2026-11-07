@@ -25,6 +25,11 @@ for blocked in $RHEV_BLOCKLIST; do
   fi
 done
 
+if [[ "$REF" != "bmmoaticogacrsqztafq" ]]; then
+  echo "Refuses to apply: target is not the dedicated Writeoff project."
+  exit 1
+fi
+
 echo "Target project ref: $REF"
 
 if [[ "${1:-}" == "--push" ]]; then

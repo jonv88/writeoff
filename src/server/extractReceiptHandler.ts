@@ -4,10 +4,17 @@
  * Recorded fixtures are selected by the server, never by a browser header alone.
  */
 import { detectReceiptMimeFromMagicBytes } from '../lib/ocr/importFileValidation.ts';
-import { resolveVeryfiDocument, type VeryfiDocumentShape } from '../lib/ocr/receiptEvidence.ts';
+import { resolveVeryfiDocument, type ReceiptReading, type VeryfiDocumentShape } from '../lib/ocr/receiptEvidence.ts';
 import { reserveDurableAttempt } from './attemptLedger.ts';
 import { persistFieldDiagnostic, sanitizeDiagnostic, shouldRetainTotalTrace, type FieldDiagnostic } from './fieldDiagnostics.ts';
 import { ownerCodeMatches } from './ownerAccess.ts';
+import {
+  DEFAULT_OPENAI_MODEL,
+  openaiReaderEnabled,
+  OpenAiReceiptError,
+  readReceiptWithOpenAi,
+} from './openaiReceipt.ts';
+import { cloudScanRefusal, providerEnabled } from './veryfiPolicy.ts';
 import { processVeryfiDocument, toVeryfiDocument, VeryfiRequestError, type VeryfiCredentials } from './veryfiLive.ts';
 
 export const ALLOWED_PREVIEW_BRANCH = 'cursor/veryfi-live-scan-9e74';
@@ -24,7 +31,13 @@ export type ExtractEnv = {
   VERYFI_CLIENT_ID?: string;
   VERYFI_USERNAME?: string;
   VERYFI_API_KEY?: string;
+  VERYFI_PROVIDER?: string;
   PREVIEW_OWNER_CODE?: string;
+  RECEIPT_READER?: string;
+  OPENAI_API_KEY?: string;
+  OPENAI_RECEIPT_MODEL?: string;
+  OPENAI_RECEIPT_MONTHLY_CAP?: string;
+  OPENAI_RECEIPT_CUSTOMER_CAP?: string;
 };
 
 type CacheEntry = { hash: string; body: string; status: number };
@@ -34,11 +47,18 @@ const byHash = new Map<string, CacheEntry>();
 const pending = new Set<string>();
 let liveCount = 0;
 
+const openAiByHash = new Map<string, CacheEntry>();
+const openAiPending = new Set<string>();
+const openAiCounts = new Map<string, number>();
+
 export function resetExtractGuards(): void {
   idempotency.clear();
   byHash.clear();
   pending.clear();
   liveCount = 0;
+  openAiByHash.clear();
+  openAiPending.clear();
+  openAiCounts.clear();
 }
 
 export function liveDocumentCount(): number {
@@ -57,9 +77,9 @@ function json(status: number, body: unknown): Response {
   });
 }
 
-function failure(status: number, message: string) {
+function failure(status: number, message: string, provider: 'veryfi' | 'openai' = 'veryfi') {
   return json(status, {
-    provider: 'veryfi',
+    provider,
     mode: 'off',
     status: 'failed',
     merchant: null,
@@ -143,12 +163,36 @@ export async function handleExtractReceipt(
     allowedOrigins?: string[];
     reserveAttempt?: (cap: number) => Promise<boolean>;
     recordDiagnostic?: (entry: FieldDiagnostic) => Promise<void> | void;
+    resolveCustomer?: () => Promise<{ ownerId: string; entitled: boolean } | null>;
+    consumeAllowance?: (ownerId: string) => Promise<boolean>;
+    allowRequest?: (ownerId: string) => boolean;
+    readReceipt?: (bytes: Uint8Array, mime: 'image/jpeg' | 'image/png' | 'image/webp') => Promise<ReceiptReading>;
+    reserveOpenAi?: (ownerId: string) => Promise<boolean>;
   },
 ): Promise<Response> {
   const env = options?.env || {};
+  if (request.method === 'GET') {
+    if (openaiReaderEnabled(env)) {
+      return new Response(JSON.stringify({ enabled: true, provider: 'openai' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
+      });
+    }
+    const enabled = providerEnabled(env)
+      && env.VERCEL_ENV !== 'production'
+      && (!env.VERCEL_GIT_COMMIT_REF || env.VERCEL_GIT_COMMIT_REF === ALLOWED_PREVIEW_BRANCH);
+    return new Response(JSON.stringify({ enabled: Boolean(enabled), provider: 'veryfi' }), {
+      status: 200,
+      headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
+    });
+  }
   if (env.VERCEL_ENV === 'production') return failure(404, 'Receipt reading is not available here.');
-  if (env.VERCEL_GIT_COMMIT_REF && env.VERCEL_GIT_COMMIT_REF !== ALLOWED_PREVIEW_BRANCH) {
-    return failure(404, 'Receipt reading is not available here.');
+  if (openaiReaderEnabled(env)) return handleOpenAiReceipt(request, env, options);
+  if (!options?.selectRecorded && env.VERCEL_GIT_COMMIT_REF && env.VERCEL_GIT_COMMIT_REF !== ALLOWED_PREVIEW_BRANCH) {
+    if (env.VERYFI_LIVE_CALLS === '1' || env.VERYFI_PROVIDER === 'enabled') {
+      return failure(404, 'Receipt reading is not available here.');
+    }
+    return failure(503, 'Live receipt reading is turned off.');
   }
   if (request.method !== 'POST') return failure(405, 'Send the receipt photo with the review form.');
   if (!sameOrigin(request, options?.allowedOrigins || [])) {
@@ -196,9 +240,21 @@ export async function handleExtractReceipt(
       document = toVeryfiDocument(recorded as unknown as Record<string, unknown>);
     } else if (env.VERYFI_LIVE_CALLS !== '1') {
       return failure(503, 'Live receipt reading is turned off.');
-    } else if (!options?.processDocument && !env.PREVIEW_OWNER_CODE) {
+    } else if (!options?.processDocument && !providerEnabled(env)) {
+      return failure(503, 'Live receipt reading is turned off.');
+    } else if (!options?.processDocument && !env.PREVIEW_OWNER_CODE && !options?.resolveCustomer) {
       return failure(503, 'Live receipt reading is turned off.');
     } else {
+      let scanOwner = '';
+      if (options?.resolveCustomer) {
+        const customer = await options.resolveCustomer();
+        if (!customer) return failure(401, 'Sign in from Writeoff to continue.');
+        if (!customer.entitled) return failure(402, cloudScanRefusal(false));
+        if (options.allowRequest && !options.allowRequest(customer.ownerId)) {
+          return failure(429, 'Too many receipt readings were requested. Review the photo on this device.');
+        }
+        scanOwner = customer.ownerId;
+      }
       const credentials: VeryfiCredentials = {
         clientId: env.VERYFI_CLIENT_ID || '',
         username: env.VERYFI_USERNAME || '',
@@ -229,6 +285,9 @@ export async function handleExtractReceipt(
         }
       }
       if (!reserved) return failure(429, 'This preview has reached its receipt reading limit.');
+      if (options?.consumeAllowance && !(await options.consumeAllowance(scanOwner))) {
+        return failure(429, cloudScanRefusal(true));
+      }
       pending.add(hash);
       mode = 'live';
       try {
@@ -271,4 +330,92 @@ export async function handleExtractReceipt(
   }
   const body = JSON.stringify(packed.body);
   return remember(idempotencyKey, hash, 200, body);
+}
+
+type ExtractOptions = NonNullable<Parameters<typeof handleExtractReceipt>[1]>;
+
+async function handleOpenAiReceipt(request: Request, env: ExtractEnv, options?: ExtractOptions): Promise<Response> {
+  if (request.method !== 'POST') return failure(405, 'Send the receipt photo with the review form.', 'openai');
+  if (!sameOrigin(request, options?.allowedOrigins || [])) {
+    return failure(403, 'Receipt reading is only available from this preview.', 'openai');
+  }
+  if (!options?.resolveCustomer) return failure(503, 'Receipt reading is turned off.', 'openai');
+  const customer = await options.resolveCustomer();
+  if (!customer) return failure(401, 'Sign in from Writeoff to continue.', 'openai');
+  if (options.allowRequest && !options.allowRequest(customer.ownerId)) {
+    return failure(429, 'Too many receipt readings were requested. Review the photo on this device.', 'openai');
+  }
+
+  const bytes = new Uint8Array(await request.arrayBuffer());
+  if (bytes.byteLength <= 0) return failure(400, 'That photo is empty.', 'openai');
+  if (bytes.byteLength > MAX_RECEIPT_UPLOAD_BYTES) {
+    return failure(413, 'This photo is too large to send. Enter the details you can see on it.', 'openai');
+  }
+  const mime = detectReceiptMimeFromMagicBytes(bytes);
+  if (mime !== 'image/jpeg' && mime !== 'image/png' && mime !== 'image/webp') {
+    return failure(415, 'ChatGPT can read a JPEG, PNG, or WebP photo. Enter the details on this file.', 'openai');
+  }
+  const hash = await sha256(bytes);
+  const cached = openAiByHash.get(hash);
+  if (cached) {
+    const parsed = JSON.parse(cached.body) as { duplicate?: boolean };
+    parsed.duplicate = true;
+    return new Response(JSON.stringify(parsed), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
+    });
+  }
+  if (openAiPending.has(hash)) {
+    return failure(409, 'That photo is already being read. Wait for the first result.', 'openai');
+  }
+
+  if (!options.reserveOpenAi && !options.readReceipt) {
+    return failure(503, 'Receipt reading is turned off.', 'openai');
+  }
+  const reserved = options.reserveOpenAi
+    ? await options.reserveOpenAi(customer.ownerId)
+    : reserveOpenAiInMemory(customer.ownerId);
+  if (!reserved) {
+    return failure(429, 'This month’s ChatGPT receipt reading allowance is used. Review the photo on this device.', 'openai');
+  }
+
+  openAiPending.add(hash);
+  try {
+    const reading = options.readReceipt
+      ? await options.readReceipt(bytes, mime)
+      : await readReceiptWithOpenAi(
+        bytes,
+        mime,
+        env.OPENAI_API_KEY || '',
+        env.OPENAI_RECEIPT_MODEL || DEFAULT_OPENAI_MODEL,
+        fetch,
+      );
+    const body = JSON.stringify({
+      provider: 'openai',
+      mode: 'live',
+      duplicate: false,
+      ...reading,
+      version: 'openai-receipt-2026.11.06',
+    });
+    openAiByHash.set(hash, { hash, body, status: 200 });
+    return new Response(body, {
+      status: 200,
+      headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
+    });
+  } catch (err) {
+    const message = err instanceof OpenAiReceiptError
+      ? err.message
+      : 'Receipt reading failed before a result came back.';
+    return failure(502, message, 'openai');
+  } finally {
+    openAiPending.delete(hash);
+  }
+}
+
+function reserveOpenAiInMemory(ownerId: string): boolean {
+  const mine = openAiCounts.get(ownerId) || 0;
+  const total = [...openAiCounts.values()].reduce((sum, count) => sum + count, 0);
+  if (mine >= 20 || total >= 60) return false;
+  openAiCounts.set(ownerId, mine + 1);
+  return true;
 }

@@ -5,14 +5,16 @@
  */
 import type { OcrExtraction } from './adapter';
 import { US_MERCHANTS } from './usMerchants';
+import workerPath from 'tesseract.js/dist/worker.min.js?url';
 import { prepareReceiptPhoto } from './photoPrep';
-import { parseTotalFromText, reconcileReceiptOcrText } from './receiptTotals.ts';
+import { correctSubtotalMisread, explainTotal, parseTotalFromText, reconcileReceiptOcrText } from './receiptTotals.ts';
 
 export { parseTotalFromText, reconcileReceiptOcrText };
 
 const VERSION = 'browser-tesseract-2026.11.04c';
 
 const CUSTOMER_REVIEW_MSG = 'Review the details before saving.';
+const CUSTOMER_BLANK_MSG = 'This photo could not be read on this device. Retry, choose another photo, or type the merchant, date, and amount.';
 
 export type FieldHints = {
   merchant?: string;
@@ -335,6 +337,16 @@ export function parseMerchantFromText(
   return parseMerchantDetails(text, positionedLines, imageHeight).merchant;
 }
 
+function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error('timeout')), ms);
+  });
+  return Promise.race([work, timeout]).finally(() => {
+    if (timer) clearTimeout(timer);
+  }) as Promise<T>;
+}
+
 export function formatOcrAmount(total: number): string {
   return total.toFixed(2);
 }
@@ -357,7 +369,9 @@ export function parseReceiptText(text: string, confidencePct: number,
   // Merchant confidence is independent of date/amount success.
   let merchant = merchantDetails.merchant;
   const date = parseDateFromText(reconciled);
-  const { total, currency } = parseTotalFromText(reconciled);
+  const explainedTotal = explainTotal(reconciled);
+  const total = explainedTotal.total;
+  const currency = explainedTotal.currency;
   const uncertain: string[] = [];
   if (!merchant) uncertain.push('merchant');
   else if (merchantDetails.weak) uncertain.push('merchant');
@@ -370,6 +384,7 @@ export function parseReceiptText(text: string, confidencePct: number,
     if (date) uncertain.push('date');
     if (total != null) uncertain.push('total');
   }
+  if (explainedTotal.reason === 'accepted-cash-change' && total != null) uncertain.push('total');
   const unique = [...new Set(uncertain)];
   // Prefer blank over an unflagged wrong merchant: if merchant is weak AND
   // evidence is prominence-only with middling line OCR, leave blank.
@@ -383,7 +398,7 @@ export function parseReceiptText(text: string, confidencePct: number,
   if (!merchant && !date && total == null) {
     return base({
       status: 'needs_details',
-      message: CUSTOMER_REVIEW_MSG,
+      message: CUSTOMER_BLANK_MSG,
       confidence: confidencePct / 100,
       rawTextPreview: preview || undefined,
       uncertainFields: ['merchant', 'date', 'total'],
@@ -426,7 +441,7 @@ export async function extractWithBrowserOcr(
     return {
       extraction: base({
         status: 'needs_details',
-        message: CUSTOMER_REVIEW_MSG,
+        message: prepared.message || CUSTOMER_BLANK_MSG,
         uncertainFields: ['merchant', 'date', 'total'],
       }),
       attachFile: prepared.attachFile,
@@ -435,22 +450,25 @@ export async function extractWithBrowserOcr(
   }
 
   onProgress?.('Photo attached');
-  onProgress?.('Reading receipt…');
+  onProgress?.('Reading the receipt on this device…');
 
   try {
     const { createWorker } = await import('tesseract.js');
-    const worker = await createWorker('eng', 1, {
+    const worker = await withTimeout(createWorker('eng', 1, {
+      workerPath,
+      workerBlobURL: false,
       logger: (m) => {
         if (m.status === 'recognizing text' && typeof m.progress === 'number') {
-          onProgress?.(`Reading receipt… ${Math.round(m.progress * 100)}%`);
-        } else if (m.status === 'loading language traineddata') {
-          onProgress?.('Reading receipt… loading language data');
+          onProgress?.(`Reading the receipt on this device… ${Math.round(m.progress * 100)}%`);
+        } else if (m.status === 'loading language traineddata' || m.status === 'initializing api' || m.status === 'loading tesseract core') {
+          onProgress?.('Preparing on-device reading…');
         }
       },
-    });
+    }), 75_000);
     let extraction: OcrExtraction;
     try {
-      const { data } = await worker.recognize(prepared.ocrFile);
+      const recognized = await withTimeout(worker.recognize(prepared.ocrFile), 45_000);
+      const { data } = recognized;
       const fullText = data.text || '';
       extraction = parseReceiptText(fullText, data.confidence || 0, data.lines, prepared.height);
 
@@ -507,8 +525,9 @@ export async function extractWithBrowserOcr(
           // Keep fields recovered by the full scan.
         }
       }
-      // Focused final-total / balance region when amount is still blank.
-      if (extraction.total == null && prepared.width && prepared.height) {
+      // Focused final-total region. Also reread a modest-confidence total, because
+      // a full-page pass can label the subtotal as the total.
+      if (prepared.width && prepared.height && (extraction.total == null || (data.confidence || 0) < 80)) {
         try {
           const top = Math.floor(prepared.height * 0.45);
           const { data: mid } = await worker.recognize(prepared.ocrFile, {
@@ -521,22 +540,32 @@ export async function extractWithBrowserOcr(
           });
           if (mid.confidence >= 45) {
             const focusedTotal = parseTotalFromText(mid.text);
-            const combinedTotal = parseTotalFromText(fullText + '\n' + mid.text);
-            const total = combinedTotal.total ?? focusedTotal.total;
-            if (total != null) {
-              extraction.total = total;
-              extraction.currency = combinedTotal.currency || focusedTotal.currency || 'USD';
-              extraction.uncertainFields = extraction.uncertainFields.filter((f) => f !== 'total');
-              // Merchant uncertainty stays — amount recovery must not mask it.
-              if (!extraction.merchant && !extraction.uncertainFields.includes('merchant')) {
-                extraction.uncertainFields.push('merchant');
+            if (extraction.total == null) {
+              const combinedTotal = parseTotalFromText(fullText + '\n' + mid.text);
+              const total = combinedTotal.total ?? focusedTotal.total;
+              if (total != null) {
+                extraction.total = total;
+                extraction.currency = combinedTotal.currency || focusedTotal.currency || 'USD';
+                extraction.uncertainFields = extraction.uncertainFields.filter((f) => f !== 'total');
+                // Merchant uncertainty stays — amount recovery must not mask it.
+                if (!extraction.merchant && !extraction.uncertainFields.includes('merchant')) {
+                  extraction.uncertainFields.push('merchant');
+                }
+                extraction.fieldHints = fieldHintsFor(extraction.uncertainFields);
+                extraction.status = extraction.uncertainFields.length ? 'needs_details' : 'ready';
               }
-              extraction.fieldHints = fieldHintsFor(extraction.uncertainFields);
-              extraction.status = extraction.uncertainFields.length ? 'needs_details' : 'ready';
+            } else {
+              const corrected = correctSubtotalMisread(extraction.total, focusedTotal.total, mid.text || '');
+              if (corrected != null) {
+                extraction.total = corrected;
+                if (!extraction.uncertainFields.includes('total')) extraction.uncertainFields.push('total');
+                extraction.fieldHints = fieldHintsFor(extraction.uncertainFields);
+                extraction.status = 'needs_details';
+              }
             }
           }
         } catch {
-          // Keep blank amount rather than invent.
+          // Keep the full-page amount rather than invent one.
         }
       }
     } finally {
@@ -547,11 +576,15 @@ export async function extractWithBrowserOcr(
       attachFile: prepared.attachFile,
       previewUrl: prepared.previewUrl,
     };
-  } catch {
+  } catch (error) {
+    console.error('receipt-read', error);
+    const timedOut = error instanceof Error && error.message === 'timeout';
     return {
       extraction: base({
         status: 'failed',
-        message: CUSTOMER_REVIEW_MSG,
+        message: timedOut
+          ? 'Reading this photo took too long on this device. Retry, choose another photo, or type the merchant, date, and amount.'
+          : CUSTOMER_BLANK_MSG,
       }),
       attachFile: prepared.attachFile,
       previewUrl: prepared.previewUrl,

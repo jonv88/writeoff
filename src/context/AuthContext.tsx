@@ -72,7 +72,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const sb = getSupabase();
     if (!sb) throw new Error('Supabase is not configured.');
     setError(null);
-    const { error: err } = await sb.auth.signUp({ email, password });
+    const { error: err } = await sb.auth.signUp({
+      email,
+      password,
+      options: { emailRedirectTo: `${window.location.origin}/` },
+    });
     if (err) {
       setError(err.message);
       throw err;
@@ -94,7 +98,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const sb = getSupabase();
     if (!sb) return;
     setError(null);
-    await sb.auth.signOut();
+    const { error: err } = await sb.auth.signOut();
+    if (err) await sb.auth.signOut({ scope: 'local' });
   }, []);
 
   const resetPassword = useCallback(async (email: string) => {

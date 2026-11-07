@@ -56,35 +56,20 @@ create policy "bank_items_delete_own" on public.bank_items
 drop policy if exists "entitlements_select_own" on public.entitlements;
 create policy "entitlements_select_own" on public.entitlements
   for select to authenticated using (auth.uid() = user_id);
-drop policy if exists "entitlements_insert_own" on public.entitlements;
-create policy "entitlements_insert_own" on public.entitlements
-  for insert to authenticated with check (auth.uid() = user_id);
-drop policy if exists "entitlements_update_own" on public.entitlements;
-create policy "entitlements_update_own" on public.entitlements
-  for update to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
-drop policy if exists "entitlements_delete_own" on public.entitlements;
-create policy "entitlements_delete_own" on public.entitlements
-  for delete to authenticated using (auth.uid() = user_id);
 
 drop policy if exists "entitlement_events_select_own" on public.entitlement_events;
 create policy "entitlement_events_select_own" on public.entitlement_events
   for select to authenticated using (auth.uid() = user_id);
-drop policy if exists "entitlement_events_insert_own" on public.entitlement_events;
-create policy "entitlement_events_insert_own" on public.entitlement_events
-  for insert to authenticated with check (auth.uid() = user_id);
-drop policy if exists "entitlement_events_delete_own" on public.entitlement_events;
-create policy "entitlement_events_delete_own" on public.entitlement_events
-  for delete to authenticated using (auth.uid() = user_id);
 
 drop policy if exists "profiles_delete_own" on public.profiles;
 create policy "profiles_delete_own" on public.profiles
   for delete to authenticated using (auth.uid() = user_id);
 
 revoke all on public.bank_items from anon;
-revoke all on public.entitlements from anon;
-revoke all on public.entitlement_events from anon;
+revoke all on public.entitlements from anon, authenticated;
+revoke all on public.entitlement_events from anon, authenticated;
 
 grant select, insert, update, delete on public.bank_items to authenticated;
-grant select, insert, update, delete on public.entitlements to authenticated;
-grant select, insert, delete on public.entitlement_events to authenticated;
+grant select on public.entitlements to authenticated;
+grant select on public.entitlement_events to authenticated;
 grant delete on public.profiles to authenticated;

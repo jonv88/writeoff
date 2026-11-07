@@ -1,3 +1,4 @@
+import { customerFromRequest } from '../src/server/customerRequest.ts';
 import { createSandboxCheckout } from '../src/server/stripeBilling.ts';
 
 type NodeRequest = { method?: string; headers: Record<string, string | string[] | undefined> };
@@ -19,7 +20,14 @@ export default async function handler(req: NodeRequest, res: NodeResponse): Prom
   }
   const secret = process.env.STRIPE_SECRET_KEY || '';
   const priceId = process.env.STRIPE_PRICE_ID || '';
-  const ownerId = header(req, 'x-writeoff-user');
+  let ownerId: string;
+  try { ownerId = (await customerFromRequest(req, process.env)).ownerId; }
+  catch { res.statusCode = 401; res.end(JSON.stringify({ error: 'Sign in from Writeoff to continue.' })); return; }
+  if (process.env.STRIPE_PRICE_INTERVAL && process.env.STRIPE_PRICE_INTERVAL !== 'month') {
+    res.statusCode = 403;
+    res.end(JSON.stringify({ error: 'Only the approved monthly price can be checked out.' }));
+    return;
+  }
   if (!secret || !priceId) {
     res.statusCode = 503;
     res.end(JSON.stringify({ error: 'Sandbox checkout is not configured.' }));

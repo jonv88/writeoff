@@ -5,8 +5,10 @@ import {
   clearLegacyLocalStorage,
   detectLegacyLocalStorage,
 } from '../lib/legacyMigration';
-import { deleteOwnedCloudAccount, importExpenses, saveMerchantRule, saveProfile } from '../lib/data';
+import { importExpenses, saveMerchantRule, saveProfile } from '../lib/data';
 import { DELETION_RETENTION } from '../lib/account/deletion';
+import { APPROVED_PLAN } from '../lib/billing/plan';
+import { LegalNotice } from '../components/LegalNotice';
 import { expensesToCsv } from '../lib/records/csvExport';
 import { uid } from '../lib/core';
 
@@ -38,7 +40,8 @@ export function SetupScreen({ onSetup }: { onSetup: () => void }) {
     loadSampleData,
     resetToEmpty,
   } = useWorkspace();
-  const { user, signOut } = useAuth();
+  const checkout = typeof window === 'undefined' ? '' : new URLSearchParams(window.location.search).get('checkout');
+  const { user, session, signOut } = useAuth();
   const legacy = useMemo(() => detectLegacyLocalStorage(), []);
   const [importing, setImporting] = useState(false);
   const [legacyMsg, setLegacyMsg] = useState<string | null>(null);
@@ -90,16 +93,23 @@ export function SetupScreen({ onSetup }: { onSetup: () => void }) {
   async function deleteAccount() {
     if (!user) return;
     const confirmed = window.confirm(
-      'Delete the records in this signed-in account? This does not cancel a subscription. Browser data is cleared only after the server confirms.',
+      'Delete this account, its records, and its sign-in? This does not cancel a subscription. The login stops working after the server confirms.',
     );
     if (!confirmed) return;
     setDeleting(true);
     try {
-      await deleteOwnedCloudAccount(user.id);
-      await signOut();
-      showToast('Account records deleted.');
+      if (!session?.access_token) throw new Error('Sign in again before deleting this account.');
+      const response = await fetch('/api/account', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ action: 'delete' }),
+      });
+      const data = (await response.json().catch(() => null)) as { error?: string } | null;
+      if (!response.ok) throw new Error(data?.error || 'Account deletion did not finish.');
+      await signOut().catch(() => undefined);
+      showToast('Account deleted.');
     } catch (err) {
-      showToast(err instanceof Error ? err.message : 'Account records were not deleted.');
+      showToast(err instanceof Error ? err.message : 'Account deletion did not finish.');
     } finally {
       setDeleting(false);
     }
@@ -205,7 +215,7 @@ export function SetupScreen({ onSetup }: { onSetup: () => void }) {
               onClick={() => void deleteAccount()}
               style={{ marginTop: 12 }}
             >
-              {deleting ? 'Deleting…' : 'Delete account records'}
+              {deleting ? 'Deleting…' : 'Delete account'}
             </button>
           )}
         </div>
@@ -213,11 +223,19 @@ export function SetupScreen({ onSetup }: { onSetup: () => void }) {
         <div className="panel">
           <h2>Subscription</h2>
           <p className="helper" style={{ margin: '12px 0' }}>
-            Purchases aren’t available in this preview. When a store product is configured, the
-            price and period come from the store. Canceling a subscription does not delete your
-            records or turn off export.
+            Writeoff Plus is {APPROVED_PLAN.label}. Annual billing is not offered.
+            Purchases are not turned on in this preview, and a subscription starts only after the
+            payment provider confirms it. Canceling a subscription does not delete your records or
+            turn off export. Cloud receipt reading is limited; it is not unlimited.
           </p>
+          {checkout === 'return' && (
+            <p className="helper">Checkout returned to Writeoff. Access changes only after the payment provider confirms the event.</p>
+          )}
+          {checkout === 'cancel' && (
+            <p className="helper">Checkout was canceled. No payment was recorded.</p>
+          )}
           <span className="badge statuspending">No subscription</span>
+          <LegalNotice />
         </div>
 
         {localPreview && (

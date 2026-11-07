@@ -243,7 +243,7 @@ function localKept(local: LocalReading, field: 'merchant' | 'date' | 'total'): b
 /** Keep a reliable on-device field. Fill only what that reading left open. */
 export function mergeReceiptReading(input: {
   local: LocalReading;
-  remote: ReceiptReading | null;
+  remote: (ReceiptReading & { provider?: string; version?: string }) | null;
   remoteError?: string;
 }): ReceiptReading & { provider: string; version: string } {
   const local = input.local;
@@ -252,29 +252,35 @@ export function mergeReceiptReading(input: {
 
   const merchant = localKept(local, 'merchant')
     ? local.merchant
-    : remote && !remote.uncertainFields.includes('merchant')
+    : remote && !remote.uncertainFields.includes('merchant') && remote.merchant
       ? remote.merchant
-      : null;
+      : !remote && local.merchant?.trim()
+        ? local.merchant
+        : null;
   if (!merchant) uncertain.push('merchant');
 
   const date = localKept(local, 'date')
     ? local.date
-    : remote && !remote.uncertainFields.includes('date')
+    : remote && !remote.uncertainFields.includes('date') && remote.date
       ? remote.date
-      : null;
+      : !remote && local.date
+        ? local.date
+        : null;
   if (!date) uncertain.push('date');
 
   const total = localKept(local, 'total')
     ? local.total
-    : remote && !remote.uncertainFields.includes('total')
+    : remote && !remote.uncertainFields.includes('total') && remote.total != null
       ? remote.total
-      : null;
+      : !remote && local.total != null
+        ? local.total
+        : null;
   if (total == null) uncertain.push('total');
 
   let message = uncertain.length
     ? 'Some fields need a quick check before saving.'
     : 'Review the details before saving.';
-  if (input.remoteError) {
+  if (input.remoteError && remote) {
     message = merchant || date || total != null
       ? `${input.remoteError} On-device details are still shown for review.`
       : input.remoteError;
@@ -293,8 +299,8 @@ export function mergeReceiptReading(input: {
       message,
       status: failed ? 'failed' : undefined,
     }),
-    provider: remote ? 'veryfi' : local.provider || 'tesseract.js',
-    version: remote ? 'veryfi-evidence-2026.11.05' : local.version || 'browser-tesseract',
+    provider: remote?.provider || (remote ? 'veryfi' : local.provider || 'tesseract.js'),
+    version: remote?.version || (remote ? 'veryfi-evidence-2026.11.05' : local.version || 'browser-tesseract'),
     items: remote?.items || [],
   };
 }

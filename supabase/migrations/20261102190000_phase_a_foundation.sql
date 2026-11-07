@@ -185,7 +185,7 @@ on conflict (id) do update set
   allowed_mime_types = excluded.allowed_mime_types;
 
 -- Storage policies: path must be {uid}/...
-alter table storage.objects enable row level security;
+-- Supabase owns storage.objects and enables RLS; do not ALTER its managed table.
 drop policy if exists "receipts_storage_select_own" on storage.objects;
 create policy "receipts_storage_select_own" on storage.objects
   for select to authenticated
