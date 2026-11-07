@@ -1,6 +1,7 @@
 import { BILLING_PRODUCT_ID } from '../lib/billing/plan.ts';
 import { accessAllowed, type EntitlementState } from '../lib/billing/sandboxEntitlements.ts';
 import { customerFromRequest, type CustomerRequest } from './customerRequest.ts';
+import { DEFAULT_OPENAI_CUSTOMER_CAP, DEFAULT_OPENAI_MONTHLY_CAP, positiveCap } from './openaiReceipt.ts';
 import { CLOUD_SCANS_PER_CUSTOMER_MONTH, createRateLimiter, globalScanBudget } from './veryfiPolicy.ts';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
@@ -45,6 +46,22 @@ export async function consumeScanAllowance(
     p_month: month,
     p_customer_cap: CLOUD_SCANS_PER_CUSTOMER_MONTH,
     p_global_cap: globalScanBudget(env),
+  });
+  return !error && data === true;
+}
+
+/** Monthly cap for ChatGPT receipt reads. This does not change the Veryfi budget. */
+export async function reserveOpenAiScan(
+  client: SupabaseClient,
+  ownerId: string,
+  env: { OPENAI_RECEIPT_MONTHLY_CAP?: string; OPENAI_RECEIPT_CUSTOMER_CAP?: string },
+): Promise<boolean> {
+  const month = new Date().toISOString().slice(0, 7);
+  const { data, error } = await client.rpc('reserve_scan_attempt', {
+    p_owner: ownerId,
+    p_month: month,
+    p_customer_cap: positiveCap(env.OPENAI_RECEIPT_CUSTOMER_CAP, DEFAULT_OPENAI_CUSTOMER_CAP),
+    p_global_cap: positiveCap(env.OPENAI_RECEIPT_MONTHLY_CAP, DEFAULT_OPENAI_MONTHLY_CAP),
   });
   return !error && data === true;
 }

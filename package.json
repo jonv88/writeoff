@@ -16,6 +16,7 @@
     "test:veryfi-mock": "node scripts/test-veryfi-mock-fallback.mjs",
     "test:receipt-evidence": "node scripts/test-receipt-evidence.mjs",
     "test:veryfi-launch": "node scripts/test-veryfi-launch.mjs",
+    "test:openai-receipt": "node scripts/test-openai-receipt.mjs",
     "test:billing": "node scripts/test-billing-lifecycle.mjs",
     "test:launch": "node scripts/test-launch-readiness.mjs",
     "test:isolation": "node scripts/test-rls-isolation.mjs",

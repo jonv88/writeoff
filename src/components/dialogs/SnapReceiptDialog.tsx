@@ -16,7 +16,6 @@ import {
 } from '../../lib/receiptDraft';
 import { suggestWriteOff } from '../../lib/writeoffEngine';
 import { emptyExpense } from '../../lib/types';
-import { APPROVED_PLAN } from '../../lib/billing/plan';
 import { useWorkspace } from '../../context/WorkspaceContext';
 
 const SESSION_KEY = 'writeoff.mockVeryfiSession.v1';
@@ -299,7 +298,9 @@ export function SnapReceiptDialog({
         setExtractionStatus(remote.reading.status);
         setProviderLine(remote.reused
           ? 'This photo was read again from the earlier result.'
-          : 'A receipt service added details. Review them before saving.');
+          : remote.reading.provider === 'openai'
+            ? 'ChatGPT read this photo. Review the details before saving.'
+            : 'A receipt service added details. Review them before saving.');
         setPurchaseItems(remote.reading.items || []);
         applyOcrToForm(remote.reading);
         setPhase('review');
@@ -373,7 +374,9 @@ export function SnapReceiptDialog({
       remote.processed
         ? remote.reused
           ? 'This photo was read again from the earlier result.'
-          : 'A receipt service added details. Review them before saving.'
+          : remote.reading.provider === 'openai'
+            ? 'ChatGPT read this photo. Review the details before saving.'
+            : 'A receipt service added details. Review them before saving.'
         : remote.reading.mode === 'recorded'
           ? 'Saved test reading applied. This photo was not sent to the live receipt service.'
           : 'Reading ran on this device. Saving stores this photo in your private account.',
@@ -672,7 +675,7 @@ export function SnapReceiptDialog({
               JPEG, PNG, WebP, and PDF are supported. HEIC from an iPhone is read when this browser
               can open it. Reading runs on this device. Saving stores the photo in your private
               account, up to 3 MB, and removes it when you delete the expense or the account.
-              {APPROVED_PLAN.label} does not turn on a separate receipt service in this preview.
+              When ChatGPT reading is turned on, a missing detail can send the photo to OpenAI. You review the result before saving.
               A cloud drive can appear in the file picker; it is optional.
               {localPreview
                 ? ' In local preview, the file stays in this browser and does not sync.'

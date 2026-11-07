@@ -3,7 +3,7 @@ import { APPROVED_PLAN } from '../lib/billing/plan';
 
 const privacy = [
   'Writeoff stores the expenses, receipt photos, and setup you save in your account. Receipt photos stay in private storage, are limited to 3 MB, and are removed when you delete the expense or the account.',
-  'Reading runs on this device. Saving an expense can upload its receipt photo to private cloud storage. A separate receipt-reading service is off.',
+  'Reading starts on this device. When ChatGPT reading is turned on, a missing merchant, date, or amount can send the photo to OpenAI. Saving an expense can also store the photo in private cloud storage. Veryfi is not used.',
   'Bank linking in this preview uses test data only. A real bank connection is not available.',
   'You can export your expenses from Setup and delete the account there. Deleting the account removes its records, receipt files, and sign-in.',
 ];

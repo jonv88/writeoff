@@ -243,7 +243,7 @@ function localKept(local: LocalReading, field: 'merchant' | 'date' | 'total'): b
 /** Keep a reliable on-device field. Fill only what that reading left open. */
 export function mergeReceiptReading(input: {
   local: LocalReading;
-  remote: ReceiptReading | null;
+  remote: (ReceiptReading & { provider?: string; version?: string }) | null;
   remoteError?: string;
 }): ReceiptReading & { provider: string; version: string } {
   const local = input.local;
@@ -299,8 +299,8 @@ export function mergeReceiptReading(input: {
       message,
       status: failed ? 'failed' : undefined,
     }),
-    provider: remote ? 'veryfi' : local.provider || 'tesseract.js',
-    version: remote ? 'veryfi-evidence-2026.11.05' : local.version || 'browser-tesseract',
+    provider: remote?.provider || (remote ? 'veryfi' : local.provider || 'tesseract.js'),
+    version: remote?.version || (remote ? 'veryfi-evidence-2026.11.05' : local.version || 'browser-tesseract'),
     items: remote?.items || [],
   };
 }
