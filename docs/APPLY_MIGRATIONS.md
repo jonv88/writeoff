@@ -26,6 +26,10 @@ Bank server: add a server-only Supabase service-role key, Plaid Sandbox client i
 
 Stripe test-mode variables remain required: `STRIPE_SECRET_KEY` (`sk_test_`), `STRIPE_PRICE_ID`, `STRIPE_WEBHOOK_SECRET` for `/api/billing-webhook`. No paid checkout or real bank is enabled.
 
+## OpenAI receipt budget
+
+`20261107203000_openai_receipt_budget.sql` is applied on Writeoff only. It adds usage columns and service-role functions that reserve a cent ceiling before a ChatGPT read. Existing `scan_attempts` rows were not reset. Cloud reading stays off until `OPENAI_RECEIPT_MONTHLY_BUDGET_CENTS` is set on the preview. That variable is not a substitute for the OpenAI credit balance.
+
 ## Budget
 
 Approved spend is the prior bill plus approximately $10/month for this project. No larger compute, replicas, paid branches, IPv4, custom domains, recovery add-ons or extra provider charges are authorized. Spend Cap covers specified metered usage, not compute/add-ons; it is not an exact overall invoice ceiling. Shared organization quotas mean excess usage may restrict multiple projects. Current screenshot projected $34.97 before Writeoff, about $45 with an additional full month of Micro compute. No protection setting was changed on RHEV.

@@ -1,5 +1,5 @@
 import { handleExtractReceipt } from '../src/server/extractReceiptHandler.ts';
-import { consumeScanAllowance, reserveOpenAiScan, resolveScanCustomer, scanRequestAllowed } from '../src/server/scanCustomer.ts';
+import { consumeScanAllowance, recordOpenAiScanUsage, reserveOpenAiScan, resolveScanCustomer, scanRequestAllowed } from '../src/server/scanCustomer.ts';
 
 export const config = {
   api: {
@@ -56,8 +56,12 @@ export default async function handler(req: NodeRequest, res: NodeResponse): Prom
       return consumeScanAllowance(customer.client, ownerId, process.env);
     },
     reserveOpenAi: async (ownerId) => {
-      if (!customer?.client || customer.ownerId !== ownerId) return false;
+      if (!customer?.client || customer.ownerId !== ownerId) return { ok: false, reason: 'unconfigured' as const };
       return reserveOpenAiScan(customer.client, ownerId, process.env);
+    },
+    recordOpenAiUsage: async (attemptId, usage) => {
+      if (!customer?.client) return;
+      await recordOpenAiScanUsage(customer.client, attemptId, usage);
     },
   });
   res.statusCode = response.status;

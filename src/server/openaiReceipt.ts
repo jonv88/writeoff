@@ -5,11 +5,41 @@
  * request goes to api.openai.com with that organization's key.
  */
 import type { ReceiptReading } from '../lib/ocr/receiptEvidence.ts';
+import {
+  MAX_OUTPUT_TOKENS,
+  PROVIDER_ATTEMPTS,
+  REQUEST_TIMEOUT_MS,
+  maxImageInputTokens,
+  openAiMonthlyBudgetCents,
+  sanitizeOpenAiUsage,
+  tokenCents,
+  FAST_INPUT_CENTS_PER_MILLION,
+  FAST_OUTPUT_CENTS_PER_MILLION,
+  type SanitizedOpenAiUsage,
+} from './openaiCost.ts';
 
 export const OPENAI_RECEIPT_BRANCH = 'feat/plaid-sandbox';
 export const DEFAULT_OPENAI_MONTHLY_CAP = 60;
 export const DEFAULT_OPENAI_CUSTOMER_CAP = 20;
 export const DEFAULT_OPENAI_MODEL = 'gpt-4.1-mini';
+export const OPENAI_MODEL_SNAPSHOT = 'gpt-4.1-mini-2025-04-14';
+export { MAX_OUTPUT_TOKENS, PROVIDER_ATTEMPTS, REQUEST_TIMEOUT_MS };
+
+const RECEIPT_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    merchant: { anyOf: [{ type: 'string' }, { type: 'null' }] },
+    merchantQuote: { type: 'string' },
+    date: { anyOf: [{ type: 'string' }, { type: 'null' }] },
+    dateQuote: { type: 'string' },
+    total: { anyOf: [{ type: 'number' }, { type: 'null' }] },
+    totalQuote: { type: 'string' },
+    currency: { anyOf: [{ type: 'string' }, { type: 'null' }] },
+    items: { type: 'array', items: { type: 'string' } },
+  },
+  required: ['merchant', 'merchantQuote', 'date', 'dateQuote', 'total', 'totalQuote', 'currency', 'items'],
+} as const;
 
 const PROMPT = [
   'Read this receipt image.',
@@ -26,14 +56,93 @@ export type OpenAiReceiptEnv = {
   RECEIPT_READER?: string;
   OPENAI_API_KEY?: string;
   OPENAI_RECEIPT_MODEL?: string;
+  OPENAI_RECEIPT_MONTHLY_BUDGET_CENTS?: string;
+  OPENAI_RECEIPT_MONTHLY_CAP?: string;
+  OPENAI_RECEIPT_CUSTOMER_CAP?: string;
 };
 
-export function openaiReaderEnabled(env: OpenAiReceiptEnv): boolean {
+export type OpenAiReceiptResult = {
+  reading: ReceiptReading;
+  usage: SanitizedOpenAiUsage | null;
+  outcome: 'completed';
+  httpStatus: number;
+  attempts: 1;
+};
+
+/** Reader is selected for this deployment. The budget may still be closed. */
+export function openAiReaderRequested(env: OpenAiReceiptEnv): boolean {
   if (env.VERCEL_ENV === 'production') return false;
   if (env.RECEIPT_READER !== 'openai') return false;
-  if (!env.OPENAI_API_KEY?.trim()) return false;
   if (env.VERCEL_GIT_COMMIT_REF && env.VERCEL_GIT_COMMIT_REF !== OPENAI_RECEIPT_BRANCH) return false;
   return true;
+}
+
+export function openAiModel(env: OpenAiReceiptEnv): string | null {
+  const model = (env.OPENAI_RECEIPT_MODEL || DEFAULT_OPENAI_MODEL).trim();
+  if (model !== DEFAULT_OPENAI_MODEL && model !== OPENAI_MODEL_SNAPSHOT) return null;
+  return model;
+}
+
+export function openAiCountCaps(env: OpenAiReceiptEnv): { customer: number; global: number } {
+  return {
+    customer: Math.min(positiveCap(env.OPENAI_RECEIPT_CUSTOMER_CAP, DEFAULT_OPENAI_CUSTOMER_CAP), DEFAULT_OPENAI_CUSTOMER_CAP),
+    global: Math.min(positiveCap(env.OPENAI_RECEIPT_MONTHLY_CAP, DEFAULT_OPENAI_MONTHLY_CAP), DEFAULT_OPENAI_MONTHLY_CAP),
+  };
+}
+
+export function buildOpenAiRequest(model: string, imageDataUrl: string) {
+  return {
+    model,
+    max_output_tokens: MAX_OUTPUT_TOKENS,
+    input: [{
+      role: 'user',
+      content: [
+        { type: 'input_text', text: PROMPT },
+        { type: 'input_image', image_url: imageDataUrl },
+      ],
+    }],
+    text: {
+      format: {
+        type: 'json_schema',
+        name: 'receipt_fields',
+        strict: true,
+        schema: RECEIPT_SCHEMA,
+      },
+    },
+  };
+}
+
+/** One byte per token, plus framing room, for every non-image byte in the request. */
+export function textTokenCeiling(): number {
+  const json = JSON.stringify(buildOpenAiRequest(OPENAI_MODEL_SNAPSHOT, ''));
+  return new TextEncoder().encode(json).length + 256;
+}
+
+/** Fast-tier cents reserved before the provider is contacted. */
+export function openAiReserveCents(): number {
+  return tokenCents(
+    maxImageInputTokens() + textTokenCeiling(),
+    MAX_OUTPUT_TOKENS,
+    FAST_INPUT_CENTS_PER_MILLION,
+    FAST_OUTPUT_CENTS_PER_MILLION,
+  );
+}
+
+export const OPENAI_RESERVE_CENTS = openAiReserveCents();
+
+export function openaiReaderEnabled(env: OpenAiReceiptEnv): boolean {
+  if (!openAiReaderRequested(env)) return false;
+  if (!env.OPENAI_API_KEY?.trim()) return false;
+  if (!openAiModel(env)) return false;
+  const budget = openAiMonthlyBudgetCents(env);
+  return budget != null && budget >= OPENAI_RESERVE_CENTS;
+}
+
+export function openAiDisabledReason(env: OpenAiReceiptEnv): 'budget' | 'off' {
+  if (!env.OPENAI_API_KEY?.trim() || !openAiModel(env)) return 'off';
+  const budget = openAiMonthlyBudgetCents(env);
+  if (budget == null || budget < OPENAI_RESERVE_CENTS) return 'budget';
+  return 'off';
 }
 
 export function positiveCap(value: string | undefined, fallback: number): number {
@@ -161,9 +270,14 @@ export function outputText(payload: unknown): string {
 }
 
 export class OpenAiReceiptError extends Error {
-  constructor(message: string) {
+  readonly outcome: 'failed' | 'timeout';
+  readonly httpStatus: number | null;
+
+  constructor(message: string, outcome: 'failed' | 'timeout' = 'failed', httpStatus: number | null = null) {
     super(message);
     this.name = 'OpenAiReceiptError';
+    this.outcome = outcome;
+    this.httpStatus = httpStatus;
   }
 }
 
@@ -173,10 +287,10 @@ export async function readReceiptWithOpenAi(
   apiKey: string,
   model: string,
   fetchImpl: typeof fetch,
-): Promise<ReceiptReading> {
+): Promise<OpenAiReceiptResult> {
   const image = Buffer.from(bytes).toString('base64');
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 25_000);
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   let response: Response;
   try {
     response = await fetchImpl('https://api.openai.com/v1/responses', {
@@ -186,53 +300,25 @@ export async function readReceiptWithOpenAi(
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        model,
-        max_output_tokens: 700,
-        input: [{
-          role: 'user',
-          content: [
-            { type: 'input_text', text: PROMPT },
-            { type: 'input_image', image_url: `data:${mime};base64,${image}` },
-          ],
-        }],
-        text: {
-          format: {
-            type: 'json_schema',
-            name: 'receipt_fields',
-            strict: true,
-            schema: {
-              type: 'object',
-              additionalProperties: false,
-              properties: {
-                merchant: { anyOf: [{ type: 'string' }, { type: 'null' }] },
-                merchantQuote: { type: 'string' },
-                date: { anyOf: [{ type: 'string' }, { type: 'null' }] },
-                dateQuote: { type: 'string' },
-                total: { anyOf: [{ type: 'number' }, { type: 'null' }] },
-                totalQuote: { type: 'string' },
-                currency: { anyOf: [{ type: 'string' }, { type: 'null' }] },
-                items: { type: 'array', items: { type: 'string' } },
-              },
-              required: ['merchant', 'merchantQuote', 'date', 'dateQuote', 'total', 'totalQuote', 'currency', 'items'],
-            },
-          },
-        },
-      }),
+      body: JSON.stringify(buildOpenAiRequest(model, `data:${mime};base64,${image}`)),
     });
-  } catch {
-    throw new OpenAiReceiptError('Receipt reading did not finish. Review the photo on this device.');
+  } catch (err) {
+    const aborted = err instanceof Error && err.name === 'AbortError';
+    throw new OpenAiReceiptError(
+      'Receipt reading did not finish. Review the photo on this device.',
+      aborted ? 'timeout' : 'failed',
+    );
   } finally {
     clearTimeout(timer);
   }
   if (response.status === 401 || response.status === 403) {
-    throw new OpenAiReceiptError('Receipt reading is not available.');
+    throw new OpenAiReceiptError('Receipt reading is not available.', 'failed', response.status);
   }
   if (response.status === 429) {
-    throw new OpenAiReceiptError('Receipt reading is busy. Review the photo on this device.');
+    throw new OpenAiReceiptError('Receipt reading is busy. Review the photo on this device.', 'failed', response.status);
   }
   if (!response.ok) {
-    throw new OpenAiReceiptError('Receipt reading failed before a result came back.');
+    throw new OpenAiReceiptError('Receipt reading failed before a result came back.', 'failed', response.status);
   }
   const payload = await response.json().catch(() => null);
   const text = outputText(payload);
@@ -240,7 +326,13 @@ export async function readReceiptWithOpenAi(
   try {
     parsed = JSON.parse(text);
   } catch {
-    throw new OpenAiReceiptError('Receipt reading failed before a result came back.');
+    throw new OpenAiReceiptError('Receipt reading failed before a result came back.', 'failed', response.status);
   }
-  return acceptOpenAiReceipt(parsed);
+  return {
+    reading: acceptOpenAiReceipt(parsed),
+    usage: sanitizeOpenAiUsage(payload),
+    outcome: 'completed',
+    httpStatus: response.status,
+    attempts: PROVIDER_ATTEMPTS,
+  };
 }

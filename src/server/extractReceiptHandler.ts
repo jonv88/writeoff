@@ -10,10 +10,15 @@ import { persistFieldDiagnostic, sanitizeDiagnostic, shouldRetainTotalTrace, typ
 import { ownerCodeMatches } from './ownerAccess.ts';
 import {
   DEFAULT_OPENAI_MODEL,
+  openAiDisabledReason,
+  openAiModel,
+  openAiReaderRequested,
   openaiReaderEnabled,
   OpenAiReceiptError,
   readReceiptWithOpenAi,
+  type OpenAiReceiptResult,
 } from './openaiReceipt.ts';
+import type { OpenAiUsageRecord, SpendDecision } from './openaiSpendLedger.ts';
 import { cloudScanRefusal, providerEnabled } from './veryfiPolicy.ts';
 import { processVeryfiDocument, toVeryfiDocument, VeryfiRequestError, type VeryfiCredentials } from './veryfiLive.ts';
 
@@ -38,6 +43,7 @@ export type ExtractEnv = {
   OPENAI_RECEIPT_MODEL?: string;
   OPENAI_RECEIPT_MONTHLY_CAP?: string;
   OPENAI_RECEIPT_CUSTOMER_CAP?: string;
+  OPENAI_RECEIPT_MONTHLY_BUDGET_CENTS?: string;
 };
 
 type CacheEntry = { hash: string; body: string; status: number };
@@ -49,7 +55,6 @@ let liveCount = 0;
 
 const openAiByHash = new Map<string, CacheEntry>();
 const openAiPending = new Set<string>();
-const openAiCounts = new Map<string, number>();
 
 export function resetExtractGuards(): void {
   idempotency.clear();
@@ -58,7 +63,6 @@ export function resetExtractGuards(): void {
   liveCount = 0;
   openAiByHash.clear();
   openAiPending.clear();
-  openAiCounts.clear();
 }
 
 export function liveDocumentCount(): number {
@@ -166,14 +170,18 @@ export async function handleExtractReceipt(
     resolveCustomer?: () => Promise<{ ownerId: string; entitled: boolean } | null>;
     consumeAllowance?: (ownerId: string) => Promise<boolean>;
     allowRequest?: (ownerId: string) => boolean;
-    readReceipt?: (bytes: Uint8Array, mime: 'image/jpeg' | 'image/png' | 'image/webp') => Promise<ReceiptReading>;
-    reserveOpenAi?: (ownerId: string) => Promise<boolean>;
+    readReceipt?: (bytes: Uint8Array, mime: 'image/jpeg' | 'image/png' | 'image/webp') => Promise<ReceiptReading | OpenAiReceiptResult>;
+    reserveOpenAi?: (ownerId: string) => Promise<SpendDecision>;
+    recordOpenAiUsage?: (attemptId: string, usage: OpenAiUsageRecord) => Promise<void> | void;
   },
 ): Promise<Response> {
   const env = options?.env || {};
   if (request.method === 'GET') {
-    if (openaiReaderEnabled(env)) {
-      return new Response(JSON.stringify({ enabled: true, provider: 'openai' }), {
+    if (openAiReaderRequested(env)) {
+      const enabled = openaiReaderEnabled(env);
+      return new Response(JSON.stringify(enabled
+        ? { enabled: true, provider: 'openai' }
+        : { enabled: false, provider: 'openai', reason: openAiDisabledReason(env) }), {
         status: 200,
         headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
       });
@@ -187,7 +195,10 @@ export async function handleExtractReceipt(
     });
   }
   if (env.VERCEL_ENV === 'production') return failure(404, 'Receipt reading is not available here.');
-  if (openaiReaderEnabled(env)) return handleOpenAiReceipt(request, env, options);
+  if (openAiReaderRequested(env)) {
+    if (!openaiReaderEnabled(env)) return failure(503, 'Receipt reading is turned off.', 'openai');
+    return handleOpenAiReceipt(request, env, options);
+  }
   if (!options?.selectRecorded && env.VERCEL_GIT_COMMIT_REF && env.VERCEL_GIT_COMMIT_REF !== ALLOWED_PREVIEW_BRANCH) {
     if (env.VERYFI_LIVE_CALLS === '1' || env.VERYFI_PROVIDER === 'enabled') {
       return failure(404, 'Receipt reading is not available here.');
@@ -368,54 +379,81 @@ async function handleOpenAiReceipt(request: Request, env: ExtractEnv, options?: 
   if (openAiPending.has(hash)) {
     return failure(409, 'That photo is already being read. Wait for the first result.', 'openai');
   }
-
-  if (!options.reserveOpenAi && !options.readReceipt) {
-    return failure(503, 'Receipt reading is turned off.', 'openai');
-  }
-  const reserved = options.reserveOpenAi
-    ? await options.reserveOpenAi(customer.ownerId)
-    : reserveOpenAiInMemory(customer.ownerId);
-  if (!reserved) {
-    return failure(429, 'This month’s ChatGPT receipt reading allowance is used. Review the photo on this device.', 'openai');
-  }
+  if (!options.reserveOpenAi) return failure(503, 'Receipt reading is turned off.', 'openai');
 
   openAiPending.add(hash);
+  let attemptId = '';
+  const started = Date.now();
   try {
-    const reading = options.readReceipt
-      ? await options.readReceipt(bytes, mime)
-      : await readReceiptWithOpenAi(
-        bytes,
-        mime,
-        env.OPENAI_API_KEY || '',
-        env.OPENAI_RECEIPT_MODEL || DEFAULT_OPENAI_MODEL,
-        fetch,
-      );
+    const reserved = await options.reserveOpenAi(customer.ownerId);
+    if (!reserved.ok) {
+      const status = reserved.reason === 'cap' ? 429 : 503;
+      const message = reserved.reason === 'cap'
+        ? 'This month’s ChatGPT receipt reading allowance is used. Review the photo on this device.'
+        : 'Receipt reading is turned off.';
+      return failure(status, message, 'openai');
+    }
+    attemptId = reserved.attemptId;
+    const model = openAiModel(env) || DEFAULT_OPENAI_MODEL;
+    let result: OpenAiReceiptResult;
+    try {
+      const raw = options.readReceipt
+        ? await options.readReceipt(bytes, mime)
+        : await readReceiptWithOpenAi(bytes, mime, env.OPENAI_API_KEY || '', model, fetch);
+      result = unpackOpenAiResult(raw);
+    } catch (err) {
+      const known = err instanceof OpenAiReceiptError ? err : null;
+      await recordOpenAi(options, attemptId, {
+        outcome: known?.outcome || 'failed',
+        model,
+        inputTokens: null,
+        outputTokens: null,
+        imageTokens: null,
+        measuredCents: null,
+        latencyMs: Date.now() - started,
+        httpStatus: known?.httpStatus ?? null,
+        byteLength: bytes.byteLength,
+      });
+      return failure(502, known?.message || 'Receipt reading failed before a result came back.', 'openai');
+    }
+    await recordOpenAi(options, attemptId, {
+      outcome: 'completed',
+      model,
+      inputTokens: result.usage?.inputTokens ?? null,
+      outputTokens: result.usage?.outputTokens ?? null,
+      imageTokens: result.usage?.imageTokens ?? null,
+      measuredCents: result.usage?.measuredFastCents ?? null,
+      latencyMs: Date.now() - started,
+      httpStatus: result.httpStatus,
+      byteLength: bytes.byteLength,
+    });
     const body = JSON.stringify({
       provider: 'openai',
       mode: 'live',
       duplicate: false,
-      ...reading,
-      version: 'openai-receipt-2026.11.06',
+      ...result.reading,
+      version: 'openai-receipt-2026.11.07',
     });
     openAiByHash.set(hash, { hash, body, status: 200 });
     return new Response(body, {
       status: 200,
       headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
     });
-  } catch (err) {
-    const message = err instanceof OpenAiReceiptError
-      ? err.message
-      : 'Receipt reading failed before a result came back.';
-    return failure(502, message, 'openai');
   } finally {
     openAiPending.delete(hash);
   }
 }
 
-function reserveOpenAiInMemory(ownerId: string): boolean {
-  const mine = openAiCounts.get(ownerId) || 0;
-  const total = [...openAiCounts.values()].reduce((sum, count) => sum + count, 0);
-  if (mine >= 20 || total >= 60) return false;
-  openAiCounts.set(ownerId, mine + 1);
-  return true;
+function unpackOpenAiResult(value: ReceiptReading | OpenAiReceiptResult): OpenAiReceiptResult {
+  if (value && typeof value === 'object' && 'reading' in value && 'attempts' in value) return value;
+  return { reading: value, usage: null, outcome: 'completed', httpStatus: 200, attempts: 1 };
+}
+
+async function recordOpenAi(options: ExtractOptions | undefined, attemptId: string, usage: OpenAiUsageRecord): Promise<void> {
+  if (!attemptId || !options?.recordOpenAiUsage) return;
+  try {
+    await options.recordOpenAiUsage(attemptId, usage);
+  } catch {
+    // The reservation already counts. A usage note must not cause another provider call.
+  }
 }

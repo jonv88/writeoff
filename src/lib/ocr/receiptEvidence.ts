@@ -233,6 +233,21 @@ type LocalReading = {
   version?: string;
 };
 
+/** A cloud read is for a blank or uncertain merchant, date, or amount. */
+export function needsCloudReceiptAssist(local: {
+  merchant: string | null;
+  date: string | null;
+  total: number | null;
+  uncertainFields: readonly string[];
+  status?: string;
+}): boolean {
+  if (local.status === 'failed') return true;
+  const merchantOk = Boolean(local.merchant?.trim()) && !local.uncertainFields.includes('merchant');
+  const dateOk = Boolean(local.date) && !local.uncertainFields.includes('date');
+  const totalOk = local.total != null && Number.isFinite(local.total) && !local.uncertainFields.includes('total');
+  return !merchantOk || !dateOk || !totalOk;
+}
+
 function localKept(local: LocalReading, field: 'merchant' | 'date' | 'total'): boolean {
   if (local.uncertainFields.includes(field)) return false;
   if (field === 'merchant') return Boolean(local.merchant?.trim());

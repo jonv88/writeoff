@@ -2,9 +2,9 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { uid } from '../../lib/core';
 import { extractReceipt } from '../../lib/ocr/adapter';
 import { formatOcrAmount } from '../../lib/ocr/browserOcr';
-import { mergeReceiptReading } from '../../lib/ocr/receiptEvidence';
+import { mergeReceiptReading, needsCloudReceiptAssist } from '../../lib/ocr/receiptEvidence';
 import { ReceiptScanSession } from '../../lib/ocr/receiptScanSession';
-import { requestServerExtraction } from '../../lib/ocr/serverExtraction';
+import { cloudReadingStatus, requestServerExtraction } from '../../lib/ocr/serverExtraction';
 import {
   clearReceiptDraft,
   clearReceiptPhoto,
@@ -237,6 +237,17 @@ export function SnapReceiptDialog({
     });
   }
 
+  function rememberPossibleMatch(merchantName: string | null, purchaseDate: string | null, total: number | null) {
+    if (!merchantName || !purchaseDate || total == null) return;
+    const hit = records.find(
+      (record) =>
+        record.merchant.toLowerCase() === merchantName.toLowerCase() &&
+        record.date === purchaseDate &&
+        Math.abs(record.amount - total) < 0.005,
+    );
+    if (hit) setMatchId(hit.id);
+  }
+
   async function acceptFile(f: File | undefined, source: 'camera' | 'file') {
     if (!f) return;
     const scanId = scanSession.current.begin();
@@ -289,7 +300,22 @@ export function SnapReceiptDialog({
       });
     } catch {
       if (!scanSession.current.isCurrent(scanId)) return;
-      const remote = await requestServerExtraction(f);
+      const cloud = await cloudReadingStatus();
+      if (!scanSession.current.isCurrent(scanId)) return;
+      if (!cloud.enabled) {
+        setPhase('review');
+        setPipeline('needs_manual');
+        setExtractionStatus('failed');
+        setProviderLine('');
+        setUncertain(['merchant', 'date', 'total']);
+        setError('');
+        setStatusMsg('This photo could not be read on this device. Retry, choose another photo, or type the merchant, date, and amount.');
+        return;
+      }
+      setStatusMsg(cloud.provider === 'openai'
+        ? 'Sending this photo to ChatGPT because a detail is missing. You review the result before saving.'
+        : 'Sending this photo for a missing detail. You review the result before saving.');
+      const remote = await requestServerExtraction(f, { assumeEnabled: true });
       if (!scanSession.current.isCurrent(scanId)) return;
       setFile(f);
       if (remote.ok) {
@@ -350,8 +376,32 @@ export function SnapReceiptDialog({
     setPhase('review');
     bumpSession((prev) => ({ ...prev, snaps: prev.snaps + 1, reviews: prev.reviews + 1 }));
     const filledLocal = Boolean(result.merchant || result.date || result.total != null);
-
-    const remote = await requestServerExtraction(attachFile || f);
+    if (!needsCloudReceiptAssist(result)) {
+      setProviderLine(filledLocal
+        ? 'Reading ran on this device. Saving stores this photo in your private account.'
+        : '');
+      setStatusMsg(filledLocal
+        ? (result.message || 'Review the details before saving.')
+        : (result.message || 'This photo could not be read on this device. Retry, choose another photo, or type the merchant, date, and amount.'));
+      rememberPossibleMatch(result.merchant, result.date, result.total);
+      return;
+    }
+    const cloud = await cloudReadingStatus();
+    if (!scanSession.current.isCurrent(scanId)) return;
+    if (!cloud.enabled) {
+      setProviderLine(filledLocal
+        ? 'Reading ran on this device. Saving stores this photo in your private account.'
+        : '');
+      setStatusMsg(filledLocal
+        ? (result.message || 'Review the details before saving.')
+        : (result.message || 'This photo could not be read on this device. Retry, choose another photo, or type the merchant, date, and amount.'));
+      rememberPossibleMatch(result.merchant, result.date, result.total);
+      return;
+    }
+    setStatusMsg(cloud.provider === 'openai'
+      ? 'Sending this photo to ChatGPT because a detail is missing. You review the result before saving.'
+      : 'Sending this photo for a missing detail. You review the result before saving.');
+    const remote = await requestServerExtraction(attachFile || f, { assumeEnabled: true });
     if (!scanSession.current.isCurrent(scanId)) return;
     if (!remote.ok) {
       setProviderLine(filledLocal
@@ -383,16 +433,7 @@ export function SnapReceiptDialog({
     );
     setPurchaseItems(merged.items || []);
     applyOcrToForm(merged);
-
-    if (merged.merchant && merged.date && merged.total != null) {
-      const hit = records.find(
-        (r) =>
-          r.merchant.toLowerCase() === merged.merchant!.toLowerCase() &&
-          r.date === merged.date &&
-          Math.abs(r.amount - merged.total!) < 0.005,
-      );
-      if (hit) setMatchId(hit.id);
-    }
+    rememberPossibleMatch(merged.merchant, merged.date, merged.total);
   }
 
   const suggestion = suggestWriteOff(

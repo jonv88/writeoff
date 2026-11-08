@@ -18,19 +18,29 @@ export type ServerExtraction =
 const MAX_UPLOAD_BYTES = 2_500_000;
 
 /** Ask whether a photo would be sent. A disabled service returns before any upload. */
-export async function cloudReadingEnabled(): Promise<boolean> {
+export async function cloudReadingStatus(): Promise<{ enabled: boolean; provider: string }> {
   try {
     const response = await fetch('/api/extract-receipt', { method: 'GET' });
-    if (!response.ok) return false;
-    const body = (await response.json()) as { enabled?: boolean };
-    return body.enabled === true;
+    if (!response.ok) return { enabled: false, provider: 'off' };
+    const body = (await response.json()) as { enabled?: boolean; provider?: unknown };
+    return {
+      enabled: body.enabled === true,
+      provider: typeof body.provider === 'string' ? body.provider : 'off',
+    };
   } catch {
-    return false;
+    return { enabled: false, provider: 'off' };
   }
 }
 
-export async function requestServerExtraction(file: File): Promise<ServerExtraction> {
-  if (!(await cloudReadingEnabled())) {
+export async function cloudReadingEnabled(): Promise<boolean> {
+  return (await cloudReadingStatus()).enabled;
+}
+
+export async function requestServerExtraction(
+  file: File,
+  options?: { assumeEnabled?: boolean },
+): Promise<ServerExtraction> {
+  if (!options?.assumeEnabled && !(await cloudReadingEnabled())) {
     return { ok: false, processed: false, skipped: true, message: '' };
   }
   const session = await getSupabase()?.auth.getSession().then((result) => result.data.session).catch(() => null);
