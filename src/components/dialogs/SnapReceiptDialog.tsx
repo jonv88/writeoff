@@ -16,6 +16,7 @@ import {
 } from '../../lib/receiptDraft';
 import { suggestWriteOff } from '../../lib/writeoffEngine';
 import { emptyExpense } from '../../lib/types';
+import { describeSaveFailure } from '../../lib/expenseSave';
 import { useWorkspace } from '../../context/WorkspaceContext';
 
 const SESSION_KEY = 'writeoff.mockVeryfiSession.v1';
@@ -104,6 +105,7 @@ export function SnapReceiptDialog({
   const [captureHint, setCaptureHint] = useState('');
   const [, setSession] = useState<MockSession>(() => readSession());
   const [draftOffer, setDraftOffer] = useState<ReceiptDraft | null>(null);
+  const [expenseId, setExpenseId] = useState('');
   const draftSaved = useRef(false);
 
   useEffect(() => {
@@ -130,6 +132,7 @@ export function SnapReceiptDialog({
       setExtractionStatus('none');
       setExtractionVersion('');
       setCaptureHint('');
+      setExpenseId('');
       userTouched.current = { merchant: false, amount: false, date: false };
       draftSaved.current = false;
       setDraftOffer(loadReceiptDraft());
@@ -153,17 +156,19 @@ export function SnapReceiptDialog({
   useEffect(() => {
     if (!open || phase !== 'review' || draftSaved.current) return;
     if (!merchant && !amount && !date) return;
-    const draft = {
+    const draft: ReceiptDraft = {
       merchant,
       amount,
       date,
       currency,
       notes,
       updatedAt: new Date().toISOString(),
+      ...(expenseId ? { expenseId } : {}),
+      ...(ocrProvider ? { provider: ocrProvider } : {}),
     };
     saveReceiptDraft(draft);
     if (file) void saveReceiptPhoto(file, { name: file.name, type: file.type });
-  }, [open, phase, merchant, amount, date, currency, notes, file]);
+  }, [open, phase, merchant, amount, date, currency, notes, file, expenseId, ocrProvider]);
 
   function markTouched(key: FieldKey) {
     userTouched.current[key] = true;
@@ -280,6 +285,7 @@ export function SnapReceiptDialog({
     setFile(f);
 
     const draftId = uid();
+    setExpenseId(draftId);
     setPipeline('reading');
     setStatusMsg('Reading the receipt on this device…');
 
@@ -511,8 +517,10 @@ export function SnapReceiptDialog({
         return;
       }
 
+      const saveId = expenseId || uid();
+      if (!expenseId) setExpenseId(saveId);
       const record = emptyExpense({
-        id: uid(),
+        id: saveId,
         merchant: merchant.trim(),
         amount: amountNum,
         currency,
@@ -531,7 +539,8 @@ export function SnapReceiptDialog({
         suggestionRuleVersion: suggestion.ruleVersion,
         receipt: receiptMeta,
       });
-      await saveRecord(record, serverStoragePath ? null : file);
+      const saved = await saveRecord(record, serverStoragePath ? null : file);
+      setExpenseId(saved.id);
       draftSaved.current = true;
       clearReceiptDraft();
       void clearReceiptPhoto();
@@ -545,7 +554,21 @@ export function SnapReceiptDialog({
       }));
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not save.');
+      // Keep the review form, photo, and draft. Do not rerun OCR.
+      setError(describeSaveFailure(err, 'unknown'));
+      if (expenseId || merchant || amount || date) {
+        saveReceiptDraft({
+          merchant,
+          amount,
+          date,
+          currency,
+          notes,
+          updatedAt: new Date().toISOString(),
+          ...(expenseId ? { expenseId } : {}),
+          ...(ocrProvider ? { provider: ocrProvider } : {}),
+        });
+        if (file) void saveReceiptPhoto(file, { name: file.name, type: file.type });
+      }
     } finally {
       setBusy(false);
     }
@@ -560,6 +583,8 @@ export function SnapReceiptDialog({
         currency,
         notes,
         updatedAt: new Date().toISOString(),
+        ...(expenseId ? { expenseId } : {}),
+        ...(ocrProvider ? { provider: ocrProvider } : {}),
       });
       if (file) void saveReceiptPhoto(file, { name: file.name, type: file.type });
     }
@@ -629,6 +654,8 @@ export function SnapReceiptDialog({
                     setDate(draftOffer.date);
                     setCurrency(draftOffer.currency || 'USD');
                     setNotes(draftOffer.notes);
+                    if (draftOffer.expenseId) setExpenseId(draftOffer.expenseId);
+                    if (draftOffer.provider) setOcrProvider(draftOffer.provider);
                     if (photo) {
                       setFile(photo);
                       setPreviewUrl((current) => {

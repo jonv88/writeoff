@@ -1,6 +1,13 @@
 import type { ExpenseRecord, MerchantRule, Profile, ReceiptMeta } from './types';
 import { defaultProfile } from './types';
 import { fingerprint, normalize } from './core';
+import {
+  ExpenseSaveError,
+  assertReceiptUploadable,
+  describeSaveFailure,
+  receiptStoragePath,
+  sanitizeSaveDiagnostic,
+} from './expenseSave';
 import { getSupabase } from './supabase';
 
 type ProfileRow = {
@@ -184,9 +191,108 @@ export async function saveProfile(userId: string, profile: Profile): Promise<voi
   if (error) throw error;
 }
 
+/** Refresh a near-expiry session before a multi-step save. */
+export async function ensureSaveSession(): Promise<{ userId: string }> {
+  const sb = getSupabase();
+  if (!sb) throw new ExpenseSaveError('Supabase is not configured.', { stage: 'auth', retryable: false });
+  const { data: current, error: sessionError } = await sb.auth.getSession();
+  if (sessionError) {
+    throw new ExpenseSaveError(describeSaveFailure(sessionError, 'auth'), {
+      stage: 'auth',
+      cause: sessionError,
+    });
+  }
+  let session = current.session;
+  if (!session?.user?.id) {
+    throw new ExpenseSaveError('Sign in again to save this expense. Your receipt details are still here.', {
+      stage: 'auth',
+      retryable: false,
+    });
+  }
+  const expiresAtMs = session.expires_at ? session.expires_at * 1000 : 0;
+  if (expiresAtMs && expiresAtMs - Date.now() < 120_000) {
+    const { data: refreshed, error } = await sb.auth.refreshSession();
+    if (error || !refreshed.session?.user?.id) {
+      throw new ExpenseSaveError(
+        'Your session expired. Sign in again, then tap Save expense. Your receipt details are still here.',
+        { stage: 'auth', cause: error },
+      );
+    }
+    session = refreshed.session;
+  }
+  return { userId: session.user.id };
+}
+
+async function expenseIdsWithoutReceipt(userId: string, expenseIds: string[]): Promise<string[]> {
+  const sb = getSupabase();
+  if (!sb || !expenseIds.length) return [];
+  const { data: linked } = await sb
+    .from('receipts')
+    .select('expense_id')
+    .eq('user_id', userId)
+    .in('expense_id', expenseIds);
+  const withReceipt = new Set((linked || []).map((row: { expense_id: string }) => row.expense_id));
+  return expenseIds.filter((id) => !withReceipt.has(id));
+}
+
+/**
+ * Reuse an expense that was created without a receipt photo (a prior partial save).
+ * Only the signed-in owner's rows are considered.
+ */
+export async function findIncompleteReceiptExpense(
+  userId: string,
+  input: { merchant: string; date: string; amount: number; preferredId?: string | null },
+): Promise<string | null> {
+  const sb = getSupabase();
+  if (!sb) return null;
+  const amountCents = Math.round(input.amount * 100);
+  if (input.preferredId && /^[0-9a-f-]{36}$/i.test(input.preferredId)) {
+    const missing = await expenseIdsWithoutReceipt(userId, [input.preferredId]);
+    if (missing[0]) return missing[0];
+  }
+  const { data, error } = await sb
+    .from('expenses')
+    .select('id')
+    .eq('user_id', userId)
+    .eq('merchant', input.merchant)
+    .eq('expense_date', input.date)
+    .eq('amount_cents', amountCents)
+    .order('created_at', { ascending: false })
+    .limit(8);
+  if (error || !data?.length) return null;
+  const candidates = (data as Array<{ id: string }>).map((row) => row.id);
+  const incomplete = await expenseIdsWithoutReceipt(userId, candidates);
+  return incomplete[0] || null;
+}
+
+/** After a receipt is linked, drop same-amount incomplete siblings from earlier failed retries. */
+export async function cleanupIncompleteSiblingExpenses(
+  userId: string,
+  keptExpenseId: string,
+  input: { merchant: string; date: string; amount: number },
+): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) return;
+  const amountCents = Math.round(input.amount * 100);
+  const { data } = await sb
+    .from('expenses')
+    .select('id')
+    .eq('user_id', userId)
+    .eq('merchant', input.merchant)
+    .eq('expense_date', input.date)
+    .eq('amount_cents', amountCents)
+    .neq('id', keptExpenseId)
+    .limit(20);
+  const candidates = ((data || []) as Array<{ id: string }>).map((row) => row.id);
+  const incomplete = await expenseIdsWithoutReceipt(userId, candidates);
+  for (const id of incomplete) {
+    await sb.from('expenses').delete().eq('user_id', userId).eq('id', id);
+  }
+}
+
 export async function upsertExpense(userId: string, record: ExpenseRecord): Promise<ExpenseRecord> {
   const sb = getSupabase();
-  if (!sb) throw new Error('Supabase is not configured.');
+  if (!sb) throw new ExpenseSaveError('Supabase is not configured.', { stage: 'expense', retryable: false });
 
   const fp = fingerprint({
     date: record.date,
@@ -222,7 +328,13 @@ export async function upsertExpense(userId: string, record: ExpenseRecord): Prom
   };
 
   const { data, error } = await sb.from('expenses').upsert(payload).select('*').single();
-  if (error) throw error;
+  if (error) {
+    throw new ExpenseSaveError(describeSaveFailure(error, 'expense'), {
+      stage: 'expense',
+      expenseId: record.id,
+      cause: error,
+    });
+  }
   return mapExpense(data as ExpenseRow, record.receipt);
 }
 
@@ -278,50 +390,111 @@ export async function uploadReceipt(
   file: File,
 ): Promise<ReceiptMeta> {
   const sb = getSupabase();
-  if (!sb) throw new Error('Supabase is not configured.');
+  if (!sb) throw new ExpenseSaveError('Supabase is not configured.', { stage: 'upload', retryable: false });
 
-  if (file.size > 3 * 1024 * 1024) {
-    throw new Error('Choose a receipt smaller than 3 MB.');
-  }
-  if (
-    !(
-      /^image\/(jpeg|png|webp|gif|heic|heif)$/.test(file.type) ||
-      file.type === 'application/pdf'
-    )
-  ) {
-    throw new Error('Choose a photo or PDF receipt.');
+  let mime: string;
+  try {
+    mime = assertReceiptUploadable(file);
+  } catch (err) {
+    throw err instanceof ExpenseSaveError
+      ? err
+      : new ExpenseSaveError(describeSaveFailure(err, 'upload'), { stage: 'upload', expenseId, cause: err });
   }
 
-  const safeName = file.name.replace(/[^\w.\-]+/g, '_').slice(0, 120);
-  const storagePath = `${userId}/${expenseId}/${Date.now()}-${safeName}`;
+  const storagePath = receiptStoragePath(userId, expenseId, mime);
+  let bytes: ArrayBuffer;
+  try {
+    bytes = await file.arrayBuffer();
+  } catch (err) {
+    throw new ExpenseSaveError(describeSaveFailure(err, 'upload'), {
+      stage: 'upload',
+      expenseId,
+      storagePath,
+      cause: err,
+    });
+  }
+  if (bytes.byteLength <= 0) {
+    throw new ExpenseSaveError('That photo is empty.', { stage: 'upload', expenseId, retryable: false });
+  }
+  if (bytes.byteLength > 3 * 1024 * 1024) {
+    throw new ExpenseSaveError('Choose a receipt smaller than 3 MB.', {
+      stage: 'upload',
+      expenseId,
+      retryable: false,
+    });
+  }
 
-  const { error: upErr } = await sb.storage.from('receipts').upload(storagePath, file, {
-    contentType: file.type,
-    upsert: false,
+  // ArrayBuffer upload avoids Safari FormData "Load failed" on canvas-prepared Files.
+  const { error: upErr } = await sb.storage.from('receipts').upload(storagePath, bytes, {
+    contentType: mime,
+    upsert: true,
+    cacheControl: '3600',
   });
-  if (upErr) throw upErr;
+  if (upErr) {
+    console.info(
+      'receipt-upload',
+      sanitizeSaveDiagnostic({
+        stage: 'upload',
+        expenseId,
+        storagePath,
+        byteLength: bytes.byteLength,
+        mimeType: mime,
+        httpStatus: (() => {
+          const code = (upErr as { statusCode?: unknown }).statusCode;
+          const asNumber = typeof code === 'number' ? code : typeof code === 'string' ? Number(code) : NaN;
+          return Number.isFinite(asNumber) ? asNumber : null;
+        })(),
+        errorName: upErr.name || 'StorageError',
+        errorMessage: upErr.message || null,
+      }),
+    );
+    throw new ExpenseSaveError(describeSaveFailure(upErr, 'upload'), {
+      stage: 'upload',
+      expenseId,
+      storagePath,
+      cause: upErr,
+    });
+  }
 
-  // Replace any existing receipt row for this expense
   await sb.from('receipts').delete().eq('user_id', userId).eq('expense_id', expenseId);
 
+  const safeName = (file.name || 'receipt').replace(/[^\w.\-]+/g, '_').slice(0, 120) || 'receipt';
   const { error: rowErr } = await sb.from('receipts').insert({
     user_id: userId,
     expense_id: expenseId,
-    file_name: file.name,
+    file_name: safeName,
     storage_path: storagePath,
-    mime_type: file.type,
-    size_bytes: file.size,
+    mime_type: mime,
+    size_bytes: bytes.byteLength,
   });
   if (rowErr) {
     await sb.storage.from('receipts').remove([storagePath]);
-    throw rowErr;
+    console.info(
+      'receipt-row',
+      sanitizeSaveDiagnostic({
+        stage: 'receipt_row',
+        expenseId,
+        storagePath,
+        byteLength: bytes.byteLength,
+        mimeType: mime,
+        httpStatus: null,
+        errorName: rowErr.name || 'PostgrestError',
+        errorMessage: rowErr.message || null,
+      }),
+    );
+    throw new ExpenseSaveError(describeSaveFailure(rowErr, 'receipt_row'), {
+      stage: 'receipt_row',
+      expenseId,
+      storagePath,
+      cause: rowErr,
+    });
   }
 
   return {
-    name: file.name,
+    name: safeName,
     storagePath,
-    mimeType: file.type,
-    sizeBytes: file.size,
+    mimeType: mime,
+    sizeBytes: bytes.byteLength,
   };
 }
 

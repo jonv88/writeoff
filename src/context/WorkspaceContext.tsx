@@ -10,14 +10,18 @@ import type { ExpenseRecord, MerchantRule, Profile } from '../lib/types';
 import { defaultProfile } from '../lib/types';
 import {
   attachExistingReceipt,
+  cleanupIncompleteSiblingExpenses,
   deleteExpense,
   deleteMerchantRule,
+  ensureSaveSession,
+  findIncompleteReceiptExpense,
   loadWorkspace,
   saveMerchantRule,
   saveProfile,
   uploadReceipt,
   upsertExpense,
 } from '../lib/data';
+import { ExpenseSaveError, describeSaveFailure } from '../lib/expenseSave';
 import {
   emptyLocalWorkspace,
   isLocalPreviewActive,
@@ -178,31 +182,62 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         });
         return next;
       }
-      if (!user) throw new Error('Not signed in.');
-      const previous = records;
-      let next = await upsertExpense(user.id, annotated);
-      if (file) {
-        const receipt = await uploadReceipt(user.id, next.id, file);
-        next = { ...next, receipt };
-        next = await upsertExpense(user.id, next);
-      } else if (annotated.receipt?.storagePath?.startsWith(`${user.id}/`)) {
-        const receipt = await attachExistingReceipt(user.id, next.id, annotated.receipt);
-        next = { ...next, receipt };
+      const { userId } = await ensureSaveSession();
+      if (user && user.id !== userId) {
+        throw new ExpenseSaveError('Sign in again to save this expense. Your receipt details are still here.', {
+          stage: 'auth',
+          retryable: false,
+        });
       }
-      setRecords((cur) => {
-        const idx = cur.findIndex((r) => r.id === next.id);
-        if (idx >= 0) {
-          const copy = [...cur];
-          copy[idx] = next;
-          return copy;
+      const previous = records;
+      let expenseId = annotated.id;
+      try {
+        if (file || !annotated.receipt?.storagePath) {
+          const reusable = await findIncompleteReceiptExpense(userId, {
+            merchant: annotated.merchant,
+            date: annotated.date,
+            amount: annotated.amount,
+            preferredId: annotated.id,
+          });
+          if (reusable) expenseId = reusable;
         }
-        return [next, ...cur];
-      });
-      showToast('Expense saved.', () => {
-        setRecords(previous);
-        showToast('Change undone.');
-      });
-      return next;
+        let next = await upsertExpense(userId, { ...annotated, id: expenseId });
+        if (file) {
+          const receipt = await uploadReceipt(userId, next.id, file);
+          next = { ...next, receipt };
+          next = await upsertExpense(userId, next);
+          await cleanupIncompleteSiblingExpenses(userId, next.id, {
+            merchant: next.merchant,
+            date: next.date,
+            amount: next.amount,
+          });
+        } else if (annotated.receipt?.storagePath?.startsWith(`${userId}/`)) {
+          const receipt = await attachExistingReceipt(userId, next.id, annotated.receipt);
+          next = { ...next, receipt };
+        }
+        setRecords((cur) => {
+          const idx = cur.findIndex((r) => r.id === next.id);
+          if (idx >= 0) {
+            const copy = [...cur];
+            copy[idx] = next;
+            return copy;
+          }
+          return [next, ...cur.filter((row) => row.id !== next.id)];
+        });
+        showToast('Expense saved.', () => {
+          setRecords(previous);
+          showToast('Change undone.');
+        });
+        return next;
+      } catch (err) {
+        throw err instanceof ExpenseSaveError
+          ? err
+          : new ExpenseSaveError(describeSaveFailure(err), {
+            stage: 'unknown',
+            expenseId,
+            cause: err,
+          });
+      }
     },
     [user, localPreview, persistLocal, profile, records, rules, showToast],
   );
