@@ -1,0 +1,9 @@
+{
+  "compilerOptions": {
+    "target": "es2023", "lib": ["ES2023", "DOM"], "types": ["node"],
+    "module": "nodenext", "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true, "moduleDetection": "force", "noEmit": true,
+    "skipLibCheck": true, "strict": true, "erasableSyntaxOnly": true
+  },
+  "include": ["api/**/*.ts", "src/server/**/*.ts"]
+}

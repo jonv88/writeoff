@@ -13,6 +13,10 @@ export type ReceiptDraft = {
   currency: string;
   notes: string;
   updatedAt: string;
+  /** Stable expense id so a failed save can retry without creating another row. */
+  expenseId?: string;
+  /** Attribution from the last reading on this device. Not a live provider call. */
+  provider?: string;
 };
 
 export function loadReceiptDraft(): ReceiptDraft | null {
@@ -22,6 +26,10 @@ export function loadReceiptDraft(): ReceiptDraft | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<ReceiptDraft>;
     if (!parsed.merchant && !parsed.amount && !parsed.date) return null;
+    const expenseId = typeof parsed.expenseId === 'string' && /^[0-9a-f-]{36}$/i.test(parsed.expenseId)
+      ? parsed.expenseId
+      : undefined;
+    const provider = typeof parsed.provider === 'string' ? parsed.provider.slice(0, 40) : undefined;
     return {
       merchant: String(parsed.merchant || ''),
       amount: String(parsed.amount || ''),
@@ -29,6 +37,8 @@ export function loadReceiptDraft(): ReceiptDraft | null {
       currency: String(parsed.currency || 'USD'),
       notes: String(parsed.notes || ''),
       updatedAt: String(parsed.updatedAt || ''),
+      ...(expenseId ? { expenseId } : {}),
+      ...(provider ? { provider } : {}),
     };
   } catch {
     return null;

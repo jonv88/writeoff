@@ -12,10 +12,21 @@ import type { ExpenseRecord } from '../../lib/types';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { importExpenses } from '../../lib/data';
 import { useAuth } from '../../context/AuthContext';
+import { isCsvFile, isReceiptFile, ReceiptActions } from '../ReceiptActions';
 
 type Counts = { invalid: number; other: number; duplicate: number; ready: number };
 
-export function ImportDialog({ open, onClose, onImported }: { open: boolean; onClose: () => void; onImported: () => void }) {
+export function ImportDialog({
+  open,
+  onClose,
+  onImported,
+  onReadReceipt,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onImported: () => void;
+  onReadReceipt?: (file: File) => void;
+}) {
   const { records, refresh, showToast } = useWorkspace();
   const { user } = useAuth();
   const ref = useRef<HTMLDialogElement>(null);
@@ -122,9 +133,28 @@ export function ImportDialog({ open, onClose, onImported }: { open: boolean; onC
     setError('');
   }
 
+  function routeFile(file: File | undefined) {
+    if (!file) return;
+    if (isReceiptFile(file)) {
+      onReadReceipt?.(file);
+      onClose();
+      return;
+    }
+    if (!isCsvFile(file)) {
+      setMappingVisible(false);
+      setRawImport([]);
+      setCandidates([]);
+      setPreviewRows([]);
+      setError('This file is not supported. Use a JPEG, PNG, WebP, or PDF receipt, or a CSV statement. Nothing was imported.');
+      return;
+    }
+    void onFile(file);
+  }
+
   async function onFile(file: File | undefined) {
     try {
       if (!file) return;
+      setError('');
       if (file.size > 2 * 1024 * 1024) throw new Error('Please choose a CSV smaller than 2 MB.');
       const csvRows = parseCSV(await file.text());
       if (csvRows.length < 2) throw new Error('Include a header row and at least one transaction.');
@@ -181,18 +211,23 @@ export function ImportDialog({ open, onClose, onImported }: { open: boolean; onC
             ✕
           </button>
         </div>
-        <p>Upload a bank or card CSV. Preview it before anything is saved.</p>
+        <p>Add a receipt photo or a bank CSV. A CSV is previewed before anything is saved.</p>
         <div className="importbox">
+          <ReceiptActions onReceipt={(file) => routeFile(file)} onOtherFile={(file) => routeFile(file)} />
           <label>
             CSV statement
             <input
               type="file"
               id="csvfile"
               accept=".csv,text/csv"
-              onChange={(e) => void onFile(e.target.files?.[0])}
+              onChange={(e) => routeFile(e.target.files?.[0])}
             />
           </label>
-          <p className="formhint">Processed in your browser. Up to 2 MB / 2,000 rows. USD only.</p>
+          <p className="formhint">
+            JPEG, PNG, WebP, and PDF receipts are read on this device. CSV statements stay in this
+            browser until you import them. Up to 2 MB / 2,000 rows. USD only. Google Drive is
+            optional and is never required.
+          </p>
         </div>
         {mappingVisible && (
           <div id="mapping">

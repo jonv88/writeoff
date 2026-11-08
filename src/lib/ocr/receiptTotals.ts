@@ -294,6 +294,21 @@ export function explainTotal(
     ? decideHits(collectHits(extra.layoutText, extra.structured))
     : null;
   if (fromText.reason === 'rejected-conflict') {
+    const labels = fromText.evidence
+      .filter((item) => /^(?:amount-paid|balance-due|amount-due|grand-total|final-total|total-due|total|balance):/.test(item))
+      .map((item) => item.split(':')[0]);
+    const onlyPlainTotals = labels.length > 1 && labels.every((label) => label === 'total');
+    const tender = onlyPlainTotals ? totalMatchingTender(text, fromText.candidates) : null;
+    if (tender != null) {
+      return {
+        total: tender,
+        currency: 'USD',
+        decision: 'accepted',
+        reason: 'accepted-cash-change',
+        candidates: fromText.candidates,
+        evidence: [...fromText.evidence, `cash-change:${tender}`].slice(0, 8),
+      };
+    }
     return {
       total: null,
       currency: 'USD',
@@ -325,7 +340,41 @@ export function explainTotal(
   };
 }
 
+function moneyAfterLabel(text: string, label: RegExp): number | null {
+  const match = text.match(new RegExp(`${label.source}[^\\n]{0,24}?\\$?\\s*(\\d{1,6}[.,]\\d{2})`, 'i'));
+  if (!match?.[1]) return null;
+  const value = Number(match[1].replace(',', '.'));
+  return Number.isFinite(value) ? value : null;
+}
+
+/** When two labeled totals disagree, keep the one that reconciles with cash and change. */
+function totalMatchingTender(text: string, candidates: number[]): number | null {
+  const cash = moneyAfterLabel(text, /(?:^|[^a-z])cash\b/);
+  const change = moneyAfterLabel(text, /\bchange\b/);
+  if (cash == null || change == null || cash <= change) return null;
+  const matches = candidates.filter((value) => Math.abs(cents(cash) - cents(value) - cents(change)) <= 5);
+  return matches.length === 1 ? matches[0] : null;
+}
+
 export function parseTotalFromText(text: string): { total: number | null; currency: string } {
   const explained = explainTotal(text);
   return { total: explained.total, currency: explained.currency };
+}
+
+/**
+ * A full-page read sometimes labels the subtotal as the total. When a second
+ * read of the lower receipt names that same amount as the subtotal and names
+ * a different final total, use the lower reading. Otherwise keep the first.
+ */
+export function correctSubtotalMisread(
+  fullTotal: number | null,
+  focusedTotal: number | null,
+  focusedText: string,
+): number | null {
+  if (fullTotal == null || focusedTotal == null || sameMoney(fullTotal, focusedTotal)) return null;
+  const match = focusedText.match(/sub\s*total[^\n]{0,40}?(\d{1,6}[.,]\d{2})/i);
+  if (!match?.[1]) return null;
+  const subtotal = Number(match[1].replace(',', '.'));
+  if (!Number.isFinite(subtotal) || !sameMoney(subtotal, fullTotal)) return null;
+  return focusedTotal;
 }

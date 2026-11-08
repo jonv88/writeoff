@@ -49,7 +49,7 @@ const server = createServer(async (req, res) => {
   const response = path === '/api/preview-access'
     ? await handlePreviewAccess(request, process.env)
     : await handleExtractReceipt(request, {
-    allowedOrigins: ['http://127.0.0.1:5173', 'http://localhost:5173', 'http://127.0.0.1:5174', 'http://localhost:5174', 'http://127.0.0.1:5176', 'http://localhost:5176', 'http://127.0.0.1:5181', 'http://localhost:5181'],
+    allowedOrigins: ['http://127.0.0.1:5173', 'http://localhost:5173', 'http://127.0.0.1:5174', 'http://localhost:5174', 'http://127.0.0.1:5176', 'http://localhost:5176', 'http://127.0.0.1:5181', 'http://localhost:5181', 'http://127.0.0.1:5187', 'http://localhost:5187'],
     selectRecorded(fileName) {
       return fixtures.get(fileName) || null;
     },

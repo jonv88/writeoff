@@ -3,6 +3,7 @@
  * Credentials stay on the server. This module only calls the preview endpoint.
  */
 import type { ReceiptReading } from './receiptEvidence.ts';
+import { getSupabase } from '../supabase';
 
 export type ServerExtraction =
   | {
@@ -12,11 +13,40 @@ export type ServerExtraction =
       reused: boolean;
       reading: ReceiptReading & { provider: string; version: string; mode: string };
     }
-  | { ok: false; processed: false; message: string };
+  | { ok: false; processed: false; skipped?: boolean; message: string };
 
 const MAX_UPLOAD_BYTES = 2_500_000;
 
-export async function requestServerExtraction(file: File): Promise<ServerExtraction> {
+/** Ask whether a photo would be sent. A disabled service returns before any upload. */
+export async function cloudReadingStatus(): Promise<{ enabled: boolean; provider: string }> {
+  try {
+    const response = await fetch('/api/extract-receipt', { method: 'GET' });
+    if (!response.ok) return { enabled: false, provider: 'off' };
+    const body = (await response.json()) as { enabled?: boolean; provider?: unknown };
+    return {
+      enabled: body.enabled === true,
+      provider: typeof body.provider === 'string' ? body.provider : 'off',
+    };
+  } catch {
+    return { enabled: false, provider: 'off' };
+  }
+}
+
+export async function cloudReadingEnabled(): Promise<boolean> {
+  return (await cloudReadingStatus()).enabled;
+}
+
+export async function requestServerExtraction(
+  file: File,
+  options?: { assumeEnabled?: boolean },
+): Promise<ServerExtraction> {
+  if (!options?.assumeEnabled && !(await cloudReadingEnabled())) {
+    return { ok: false, processed: false, skipped: true, message: '' };
+  }
+  const session = await getSupabase()?.auth.getSession().then((result) => result.data.session).catch(() => null);
+  if (!session?.access_token) {
+    return { ok: false, processed: false, message: 'Sign in to read a missing detail.' };
+  }
   if (file.size <= 0) return { ok: false, processed: false, message: 'That photo is empty.' };
   if (file.size > MAX_UPLOAD_BYTES) {
     return { ok: false, processed: false, message: 'This photo is too large to send. Enter the details you can see on it.' };
@@ -30,6 +60,7 @@ export async function requestServerExtraction(file: File): Promise<ServerExtract
         'Content-Type': file.type || 'application/octet-stream',
         'Idempotency-Key': idempotencyKey,
         'X-File-Name': file.name || 'receipt',
+        Authorization: `Bearer ${session.access_token}`,
       },
       body: file,
     });
@@ -65,8 +96,8 @@ export async function requestServerExtraction(file: File): Promise<ServerExtract
         .map((item) => ({ name: item.name?.replace(/\s+/g, ' ').trim() || '' }))
         .filter((item) => item.name)
         .slice(0, 40),
-      provider: 'veryfi',
-      version: payload.version || 'veryfi-evidence-2026.11.05',
+      provider: payload.provider === 'openai' ? 'openai' : 'veryfi',
+      version: payload.version || (payload.provider === 'openai' ? 'openai-receipt-2026.11.06' : 'veryfi-evidence-2026.11.05'),
       mode: payload.mode || 'live',
     },
   };

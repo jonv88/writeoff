@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import { BILLING_PRODUCT_ID, isApprovedPlan } from '../lib/billing/plan.ts';
 import { applyEntitlementEvents, type Entitlement, type EntitlementEvent } from '../lib/billing/sandboxEntitlements.ts';
 
 const TOLERANCE_SEC = 5 * 60;
@@ -33,18 +34,45 @@ type StripeEnvelope = {
   data?: { object?: Record<string, unknown> };
 };
 
-export function entitlementEventFromStripe(payload: string, productId: string): EntitlementEvent | null {
+function ownerIdFromStripe(object: Record<string, unknown>): string {
+  const metadata = (object.metadata || {}) as { owner_id?: string };
+  const parent = (object.parent || {}) as { subscription_details?: { metadata?: { owner_id?: string } } };
+  const details = (object.subscription_details || {}) as { metadata?: { owner_id?: string } };
+  return String(
+    object.client_reference_id
+    || metadata.owner_id
+    || parent.subscription_details?.metadata?.owner_id
+    || details.metadata?.owner_id
+    || '',
+  );
+}
+
+function periodEndFromStripe(object: Record<string, unknown>): string | null {
+  if (typeof object.current_period_end === 'number') {
+    return new Date(object.current_period_end * 1000).toISOString();
+  }
+  const lines = object.lines as { data?: Array<{ period?: { end?: number } }> } | undefined;
+  const lineEnd = lines?.data?.[0]?.period?.end;
+  if (typeof lineEnd === 'number') return new Date(lineEnd * 1000).toISOString();
+  if (object.object === 'invoice' && typeof object.period_end === 'number') {
+    return new Date(object.period_end * 1000).toISOString();
+  }
+  return null;
+}
+
+export function entitlementEventFromStripe(payload: string, productId: string = BILLING_PRODUCT_ID): EntitlementEvent | null {
   const event = JSON.parse(payload) as StripeEnvelope;
   const object = event.data?.object || {};
-  const ownerId = String(object.client_reference_id || object.metadata && (object.metadata as { owner_id?: string }).owner_id || '');
+  const ownerId = ownerIdFromStripe(object);
   if (!event.id || !ownerId) return null;
   const at = new Date((event.created || 0) * 1000).toISOString();
-  const periodEnd = typeof object.current_period_end === 'number'
-    ? new Date(object.current_period_end * 1000).toISOString()
-    : null;
+  const periodEnd = periodEndFromStripe(object);
   const status = String(object.status || '');
   let type: EntitlementEvent['type'] | null = null;
-  if (event.type === 'checkout.session.completed') type = 'purchase';
+  if (event.type === 'checkout.session.completed') {
+    const paid = object.payment_status === 'paid' || object.payment_status === 'no_payment_required';
+    if (paid) type = 'purchase';
+  }
   else if (event.type === 'invoice.paid') type = 'renew';
   else if (event.type === 'invoice.payment_failed') type = 'billing_retry';
   else if (event.type === 'customer.subscription.deleted') type = 'expire';
@@ -69,6 +97,19 @@ export async function createSandboxCheckout(input: {
   assertSandboxSecret(input.secretKey);
   if (!input.priceId.startsWith('price_')) throw new Error('Sandbox checkout needs a Stripe test price id.');
   if (!input.ownerId) throw new Error('Sandbox checkout needs the signed-in customer.');
+  const fetchImpl = input.fetchImpl || fetch;
+  const priceResponse = await fetchImpl(`https://api.stripe.com/v1/prices/${input.priceId}`, {
+    headers: { Authorization: `Bearer ${input.secretKey}` },
+  });
+  if (!priceResponse.ok) throw new Error('The test price could not be confirmed.');
+  const price = await priceResponse.json() as { unit_amount?: number; currency?: string; recurring?: { interval?: string } };
+  if (!isApprovedPlan({
+    amountCents: Number(price.unit_amount),
+    currency: String(price.currency || '').toUpperCase(),
+    interval: String(price.recurring?.interval || ''),
+  })) {
+    throw new Error('Only the approved $9.99 monthly price can be checked out.');
+  }
   const body = new URLSearchParams({
     mode: 'subscription',
     success_url: input.successUrl,
@@ -77,8 +118,9 @@ export async function createSandboxCheckout(input: {
     'line_items[0][price]': input.priceId,
     'line_items[0][quantity]': '1',
     'metadata[owner_id]': input.ownerId,
+    'subscription_data[metadata][owner_id]': input.ownerId,
   });
-  const response = await (input.fetchImpl || fetch)('https://api.stripe.com/v1/checkout/sessions', {
+  const response = await fetchImpl('https://api.stripe.com/v1/checkout/sessions', {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${input.secretKey}`,

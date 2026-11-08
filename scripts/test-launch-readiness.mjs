@@ -76,7 +76,8 @@ try {
   );
   assert.deepEqual(done, [...deletion.DELETION_STEPS]);
   assert.equal(calls[0], 'disconnect:customer-a');
-  assert.equal(calls.at(-1), 'delete_profile:customer-a');
+  assert.equal(calls.at(-2), 'revoke_sessions:customer-a');
+  assert.equal(calls.at(-1), 'delete_identity:customer-a');
   assert.equal(deletion.subscriptionCancelKeepsRecords(), true);
   await assert.rejects(() => deletion.deleteOwnedAccount({
     async disconnectProviders() {},
@@ -94,6 +95,17 @@ try {
     },
   }, 'customer-a'), /provider still linked/);
   assert.equal(failed, true);
+
+  const partial = [];
+  await assert.rejects(() => deletion.deleteOwnedAccount({
+    async disconnectProviders() { partial.push('disconnect'); },
+    async deleteOwned(step) {
+      partial.push(step);
+      if (step === 'delete_expenses') throw new Error('records remain');
+    },
+  }, 'customer-a'), /records remain/);
+  assert.equal(partial.includes('delete_identity'), false);
+  assert.equal(partial.includes('revoke_sessions'), false);
 
   const sample = {
     providerId: 'p1',
@@ -204,11 +216,14 @@ try {
   }
   for (const policy of ['profiles', 'expenses', 'receipts', 'rules', 'bank_items', 'entitlements', 'entitlement_events']) {
     assert.match(sql, new RegExp(`${policy}_select_own`));
-    assert.match(sql, new RegExp(`${policy}_delete_own`));
+    if (!policy.startsWith('entitlement')) assert.match(sql, new RegExp(`${policy}_delete_own`));
+    else assert.doesNotMatch(sql, new RegExp(`create policy \"${policy}_(insert|update|delete)_own\"`));
   }
   assert.match(sql, /storage_path like auth\.uid\(\)::text/);
   assert.doesNotMatch(readFileSync('src/lib/billing/sandboxEntitlements.ts', 'utf8'), /\$\d|price|trial/i);
-  assert.match(readFileSync('src/screens/SetupScreen.tsx', 'utf8'), /Purchases aren’t available in this preview/);
+  assert.match(readFileSync('src/screens/SetupScreen.tsx', 'utf8'), /Purchases are not turned on in this preview/);
+  assert.match(readFileSync('src/lib/billing/plan.ts', 'utf8'), /amountCents: 999/);
+  assert.match(readFileSync('src/lib/billing/plan.ts', 'utf8'), /annualApproved: false/);
   assert.match(readFileSync('src/screens/AccountsScreen.tsx', 'utf8'), /Bank integration unavailable/);
   assert.doesNotMatch(readFileSync('src/lib/ocr/receiptTotals.ts', 'utf8'), /Walgreens|15\.97/);
 
@@ -225,7 +240,7 @@ try {
     id: 'evt_test_1',
     type: 'checkout.session.completed',
     created: now,
-    data: { object: { client_reference_id: 'customer-a', status: 'complete' } },
+    data: { object: { client_reference_id: 'customer-a', status: 'complete', payment_status: 'paid' } },
   });
   const signature = crypto.createHmac('sha256', secret).update(`${now}.${payload}`).digest('hex');
   const header = `t=${now},v1=${signature}`;
@@ -257,13 +272,17 @@ try {
     cancelUrl: 'https://preview.test/?checkout=cancel',
     fetchImpl: async (url, init) => {
       called += 1;
+      assert.match(String(init.headers.Authorization), /sk_test_example/);
+      if (String(url).includes('/v1/prices/')) {
+        return new Response(JSON.stringify({ unit_amount: 999, currency: 'usd', recurring: { interval: 'month' } }), { status: 200 });
+      }
       assert.equal(url, 'https://api.stripe.com/v1/checkout/sessions');
       assert.match(String(init.body), /price_test_123/);
-      assert.match(String(init.headers.Authorization), /sk_test_example/);
+      assert.match(String(init.body), /subscription_data%5Bmetadata%5D%5Bowner_id%5D/);
       return new Response(JSON.stringify({ url: 'https://checkout.stripe.com/c/pay/cs_test_123' }), { status: 200 });
     },
   });
-  assert.equal(called, 1);
+  assert.equal(called, 2);
   assert.match(checkout.url, /cs_test_123/);
 
   const storeMod = await server.ssrLoadModule('/src/server/entitlementStore.ts');
@@ -273,7 +292,7 @@ try {
     id: 'evt_store_1',
     type: 'checkout.session.completed',
     created: now,
-    data: { object: { client_reference_id: customerId, status: 'complete' } },
+    data: { object: { client_reference_id: customerId, status: 'complete', payment_status: 'paid' } },
   });
   const storedHeader = `t=${now},v1=${crypto.createHmac('sha256', secret).update(`${now}.${storedPayload}`).digest('hex')}`;
   const stored = await storeMod.recordVerifiedStripeEvent({

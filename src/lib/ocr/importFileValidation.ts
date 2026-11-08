@@ -31,7 +31,7 @@ export function isAllowedReceiptMimeType(mime: string): mime is AllowedReceiptMi
 }
 
 /** Detect JPEG/PNG/WebP/PDF from magic bytes. Returns null when unrecognized. */
-export function detectReceiptMimeFromMagicBytes(bytes: Uint8Array): AllowedReceiptMime | null {
+export function detectReceiptMimeFromMagicBytes(bytes: Uint8Array): AllowedReceiptMime | 'image/heic' | null {
   if (startsWith(bytes, PDF_MAGIC)) return 'application/pdf';
   if (startsWith(bytes, JPEG_MAGIC)) return 'image/jpeg';
   if (startsWith(bytes, PNG_MAGIC)) return 'image/png';
@@ -44,6 +44,10 @@ export function detectReceiptMimeFromMagicBytes(bytes: Uint8Array): AllowedRecei
     bytes[11] === WEBP_WEBP[3]
   ) {
     return 'image/webp';
+  }
+  if (bytes.length >= 12 && bytes[4] === 0x66 && bytes[5] === 0x74 && bytes[6] === 0x79 && bytes[7] === 0x70) {
+    const brand = String.fromCharCode(bytes[8], bytes[9], bytes[10], bytes[11]).toLowerCase();
+    if (brand === 'heic' || brand === 'heif' || brand === 'mif1' || brand === 'msf1') return 'image/heic';
   }
   return null;
 }
@@ -97,6 +101,9 @@ export function validateReceiptFileSelection(
   if (/\.png$/i.test(file.name)) return { ok: true, mime: 'image/png' };
   if (/\.webp$/i.test(file.name)) return { ok: true, mime: 'image/webp' };
   if (/\.pdf$/i.test(file.name)) return { ok: true, mime: 'application/pdf' };
+  if (/\.hei[cf]$/i.test(file.name) || declaredNorm === 'image/heic' || declaredNorm === 'image/heif') {
+    return { ok: true, mime: 'image/heic' };
+  }
 
   return {
     ok: false,

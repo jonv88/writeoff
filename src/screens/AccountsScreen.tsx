@@ -1,6 +1,9 @@
+import { useAuth } from '../context/AuthContext';
+import { BankSandboxPanel } from '../components/BankSandboxPanel';
 import { useWorkspace } from '../context/WorkspaceContext';
 
 export function AccountsScreen({ onImport }: { onImport: () => void }) {
+  const { user } = useAuth();
   const { records, localPreview } = useWorkspace();
   const csvCount = records.filter((r) => r.source === 'CSV import').length;
 
@@ -20,6 +23,7 @@ export function AccountsScreen({ onImport }: { onImport: () => void }) {
             : 'Connecting Finances to ChatGPT does not automatically connect an account to this app. No live transactions are being imported or refreshed here.'}
         </div>
         <span className="badge statuspending">Bank integration unavailable</span>
+        <BankSandboxPanel key={user?.id || 'local'} />
         <div className="sectiontitle">
           <h2>Use a statement for now.</h2>
         </div>

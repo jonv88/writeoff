@@ -49,7 +49,38 @@ function isLikelyImage(file: File): boolean {
   );
 }
 
+function iosImageDecoder(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  return /iPad|iPhone|iPod/.test(navigator.userAgent)
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+
+async function bitmapFromImageElement(file: File): Promise<ImageBitmap> {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error('Could not decode image'));
+      el.src = url;
+    });
+    const canvas = document.createElement('canvas');
+    canvas.width = img.naturalWidth || img.width;
+    canvas.height = img.naturalHeight || img.height;
+    if (!canvas.width || !canvas.height) throw new Error('Could not decode image');
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Canvas unavailable');
+    ctx.drawImage(img, 0, 0);
+    return await createImageBitmap(canvas);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 async function loadBitmap(file: File): Promise<ImageBitmap> {
+  // iPhone Safari can decode a JPEG with createImageBitmap while ignoring EXIF
+  // orientation. Drawing through an image element applies that orientation.
+  if (iosImageDecoder()) return bitmapFromImageElement(file);
   // createImageBitmap applies EXIF orientation in Chromium / modern Safari for JPEG.
   if (typeof createImageBitmap === 'function') {
     try {
@@ -66,24 +97,7 @@ async function loadBitmap(file: File): Promise<ImageBitmap> {
     }
   }
 
-  const url = URL.createObjectURL(file);
-  try {
-    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const el = new Image();
-      el.onload = () => resolve(el);
-      el.onerror = () => reject(new Error('Could not decode image'));
-      el.src = url;
-    });
-    const canvas = document.createElement('canvas');
-    canvas.width = img.naturalWidth || img.width;
-    canvas.height = img.naturalHeight || img.height;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) throw new Error('Canvas unavailable');
-    ctx.drawImage(img, 0, 0);
-    return await createImageBitmap(canvas);
-  } finally {
-    URL.revokeObjectURL(url);
-  }
+  return bitmapFromImageElement(file);
 }
 
 function scaleDims(w: number, h: number, maxEdge: number): { width: number; height: number } {
